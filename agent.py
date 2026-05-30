@@ -1,10 +1,12 @@
 import os
 import json
 import re
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, List, Dict
 from operator import add as add_messages
 from dotenv import load_dotenv
-
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
 
@@ -27,39 +29,170 @@ class AgentState(TypedDict):
 
 
 # -------------------------
-# PUBMED TOOL FUNCTION
+# BGE MODEL SETUP
+# -------------------------
+embedding_model = SentenceTransformer('BAAI/bge-small-en-v1.5')
+
+# -------------------------
+# EMBEDDING FUNCTIONS
 # -------------------------
 
-def search_pubmed(query: str) -> str:
+def get_embeddings(texts: List[str], use_instruction: bool = False) -> np.ndarray:
+    """
+    Generate embeddings using BGE-small-en-v1.5.
+    
+    Args:
+        texts: List of text strings to embed
+        use_instruction: If True, prepend BGE retrieval instruction (for queries)
+    
+    Returns:
+        Normalized embeddings as numpy array
+    """
+    if use_instruction:
+        instruction = "Represent this sentence for searching relevant passages: "
+        texts_to_embed = [instruction + text for text in texts]
+    else:
+        texts_to_embed = texts
+    
+    embeddings = embedding_model.encode(texts_to_embed, normalize_embeddings=True)
+    return embeddings
+
+
+def compute_similarity(query_embedding: np.ndarray, document_embeddings: np.ndarray) -> np.ndarray:
+    """
+    Compute cosine similarity between query and documents.
+    
+    Args:
+        query_embedding: Single query embedding (1D array)
+        document_embeddings: Multiple document embeddings (2D array)
+    
+    Returns:
+        Similarity scores as 1D array
+    """
+    similarities = cosine_similarity([query_embedding], document_embeddings)[0]
+    return similarities
+
+
+# -------------------------
+# RETRIEVAL FUNCTIONS
+# -------------------------
+
+def search_pubmed(query: str) -> List[Dict]:
     """
     Search PubMed for medical research papers.
+    
+    Args:
+        query: Search query string
+    
+    Returns:
+        List of paper dictionaries with metadata
     """
     pubmed = PubMed(tool="pubmed", email="your_email@example.com")
-    results = pubmed.query(query, max_results=3)
+    results = list(pubmed.query(query, max_results=20))
 
     papers = []
 
     for article in results:
         title = article.title or "No title"
-        abstract = (
-            article.abstract[:300]
-            if article.abstract
-            else "No abstract available"
-        )
-        pubmed_id = article.pubmed_id
-        url = f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/"
+        abstract = article.abstract or "No abstract available"
+        
+        # Extract only the first PubMed ID (some fields contain multiple IDs)
+        pubmed_id_raw = article.pubmed_id or "N/A"
+        pubmed_id = pubmed_id_raw.split()[0] if pubmed_id_raw != "N/A" else "N/A"
+        
+        papers.append({
+            "title": title,
+            "abstract": abstract,
+            "pubmed_id": pubmed_id,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/"
+        })
 
-        papers.append(
-            f"""Title: {title}
+    return papers
 
-Abstract:
-{abstract}
 
-URL: {url}"""
-        )
+def rank_titles(query: str, papers: List[Dict]) -> List[Dict]:
+    """
+    Stage 1: Rank papers by title similarity.
+    
+    Args:
+        query: User's search query
+        papers: List of paper dictionaries from search_pubmed
+    
+    Returns:
+        Top 10 papers ranked by title similarity with scores
+    """
+    titles = [paper["title"] for paper in papers]
+    
+    # Get embeddings
+    query_embedding = get_embeddings([query], use_instruction=True)[0]
+    title_embeddings = get_embeddings(titles, use_instruction=False)
+    
+    # Compute similarities
+    title_similarities = compute_similarity(query_embedding, title_embeddings)
+    
+    # Add similarity scores and sort
+    for i, paper in enumerate(papers):
+        paper["title_similarity"] = float(title_similarities[i])
+    
+    # Sort by title similarity and keep top 10
+    ranked_papers = sorted(papers, key=lambda x: x["title_similarity"], reverse=True)[:10]
+    
+    return ranked_papers
 
-    return "\n\n".join(papers) if papers else "No papers found for the given query."
 
+def rank_abstracts(query: str, papers: List[Dict]) -> List[Dict]:
+    """
+    Stage 2: Rank papers by abstract similarity.
+    
+    Args:
+        query: User's search query
+        papers: Top 10 papers from title ranking
+    
+    Returns:
+        Top 5 papers ranked by abstract similarity
+    """
+    abstracts = [paper["abstract"] for paper in papers]
+    
+    # Get embeddings
+    query_embedding = get_embeddings([query], use_instruction=True)[0]
+    abstract_embeddings = get_embeddings(abstracts, use_instruction=False)
+    
+    # Compute similarities
+    abstract_similarities = compute_similarity(query_embedding, abstract_embeddings)
+    
+    # Add similarity scores
+    for i, paper in enumerate(papers):
+        paper["abstract_similarity"] = float(abstract_similarities[i])
+        # Compute final similarity as average of title and abstract similarity
+        paper["final_similarity"] = (paper["title_similarity"] + paper["abstract_similarity"]) / 2
+    
+    # Sort by final similarity and keep top 5
+    ranked_papers = sorted(papers, key=lambda x: x["final_similarity"], reverse=True)[:5]
+    
+    return ranked_papers
+
+
+def hierarchical_retrieve(query: str) -> List[Dict]:
+    """
+    Execute hierarchical retrieval: title filtering -> abstract ranking.
+    
+    Args:
+        query: User's search query
+    
+    Returns:
+        Top 5 papers with title and abstract similarity scores
+    """
+    # Stage 1: Retrieve up to 20 papers and rank by titles (keep top 10)
+    papers = search_pubmed(query)
+    if not papers:
+        return []
+    
+    papers = rank_titles(query, papers)
+    
+    # Stage 2: Rank top 10 by abstracts (keep top 5)
+    papers = rank_abstracts(query, papers)
+    
+    return papers
 
 # -------------------------
 # LLM SETUP
@@ -73,7 +206,7 @@ llm = ChatGroq(
 
 
 # -------------------------
-# MODEL NODE (WITHOUT TOOLS)
+# MODEL NODE (WITHOUT TOOLS) - UNCHANGED FOR NOW
 # -------------------------
 
 def model_call(state: AgentState):
@@ -102,7 +235,7 @@ Be concise and focused on answering the user's question with the most relevant i
 
 
 # -------------------------
-# TOOL EXECUTION NODE
+# TOOL EXECUTION NODE - UNCHANGED FOR NOW
 # -------------------------
 
 def execute_tools_if_needed(state: AgentState) -> dict:
@@ -132,7 +265,7 @@ def execute_tools_if_needed(state: AgentState) -> dict:
 
 
 # -------------------------
-# ROUTER
+# ROUTER - UNCHANGED FOR NOW
 # -------------------------
 
 def should_continue(state: AgentState) -> str:
@@ -148,7 +281,7 @@ def should_continue(state: AgentState) -> str:
 
 
 # -------------------------
-# GRAPH
+# GRAPH - UNCHANGED FOR NOW
 # -------------------------
 
 graph = StateGraph(AgentState)
@@ -173,29 +306,52 @@ compiled_graph = graph.compile()
 
 
 # -------------------------
+# FORMATTING UTILITIES
+# -------------------------
+
+def format_ranked_papers(query: str, papers: List[Dict]) -> str:
+    """
+    Format ranked papers for display.
+    
+    Args:
+        query: Original search query
+        papers: List of ranked papers with similarity scores
+    
+    Returns:
+        Formatted string output
+    """
+    if not papers:
+        return f"Query: {query}\n\nNo papers found."
+    
+    output = f"Query: {query}\n\n"
+    output += "Top 5 Ranked Papers\n"
+    output += "=" * 70 + "\n\n"
+    
+    for rank, paper in enumerate(papers, 1):
+        output += f"Rank: {rank}\n"
+        output += f"Title Similarity: {paper['title_similarity']:.4f}\n"
+        output += f"Abstract Similarity: {paper['abstract_similarity']:.4f}\n"
+        output += f"Final Similarity: {paper['final_similarity']:.4f}\n"
+        output += f"Title: {paper['title']}\n"
+        output += f"PubMed ID: {paper['pubmed_id']}\n"
+        output += f"URL: {paper['url']}\n"
+        output += "-" * 70 + "\n\n"
+    
+    return output
+
+
+# -------------------------
 # MAIN
 # -------------------------
 
 if __name__ == "__main__":
-    initial_state = {
-        "messages": [
-            HumanMessage(
-                content="What are the latest treatments for stage III NSCLC using immunotherapy?"
-            )
-        ]
-    }
-
-    final_state = compiled_graph.invoke(initial_state)
-
-    print("\n\n" + "="*60)
-    print("FINAL ANSWER:")
-    print("="*60 + "\n")
-
-    for msg in final_state["messages"]:
-        if hasattr(msg, 'content'):
-            # Clean up the output
-            content = msg.content
-            # Remove tool call markers for display
-            content = re.sub(r'<TOOL_CALL>.*?</TOOL_CALL>', '', content, flags=re.DOTALL)
-            if content.strip():
-                print(content)
+    # Test the hierarchical retrieval pipeline directly
+    query = "What are the latest treatments for stage III NSCLC using immunotherapy?"
+    
+    print("Starting hierarchical retrieval...\n")
+    
+    ranked_papers = hierarchical_retrieve(query)
+    
+    # Format and print results
+    output = format_ranked_papers(query, ranked_papers)
+    print(output)
