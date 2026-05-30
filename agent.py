@@ -162,6 +162,50 @@ def compute_citation_score(citation_count: int) -> float:
     return float(citation_score)
 
 
+def compute_composite_score(
+    similarity_score: float,
+    recency_score: float,
+    citation_score: float,
+    alpha: float,
+    beta: float,
+    gamma: float,
+) -> float:
+    """
+    Compute weighted composite score with user-controlled parameters.
+    
+    Weights are automatically normalized to sum to 1.
+    
+    Args:
+        similarity_score: Abstract semantic similarity [0, 1]
+        recency_score: Publication recency [0, 1]
+        citation_score: Citation impact [0, 1]
+        alpha: Weight for similarity
+        beta: Weight for recency
+        gamma: Weight for citations
+    
+    Returns:
+        Composite score in range [0, 1]
+    """
+    # Normalize weights
+    total = alpha + beta + gamma
+    if total == 0:
+        # Handle edge case where all weights are 0
+        total = 1.0
+    
+    alpha_norm = alpha / total
+    beta_norm = beta / total
+    gamma_norm = gamma / total
+    
+    # Compute weighted score
+    composite = (
+        alpha_norm * similarity_score +
+        beta_norm * recency_score +
+        gamma_norm * citation_score
+    )
+    
+    return float(composite)
+
+
 # -------------------------
 # CITATION RETRIEVAL (DOI-based)
 # -------------------------
@@ -373,15 +417,24 @@ def rank_titles(query: str, papers: List[Dict]) -> List[Dict]:
     return ranked_papers
 
 
-def rank_abstracts(query: str, papers: List[Dict]) -> List[Dict]:
+def rank_abstracts(
+    query: str,
+    papers: List[Dict],
+    alpha: float,
+    beta: float,
+    gamma: float,
+) -> List[Dict]:
     """
     Stage 2: Rank papers by abstract similarity using chunk-based retrieval.
     
-    Also compute recency scores, citation scores, and composite scores.
+    Also compute recency scores, citation scores, and weighted composite scores.
     
     Args:
         query: User's search query
         papers: Top 10 papers from title ranking
+        alpha: Weight for semantic similarity (default 0.8)
+        beta: Weight for recency (default 0.1)
+        gamma: Weight for citations (default 0.1)
     
     Returns:
         Top 5 papers ranked by composite score
@@ -414,10 +467,21 @@ def rank_abstracts(query: str, papers: List[Dict]) -> List[Dict]:
         citation_score = compute_citation_score(citation_count)
         paper["citation_score"] = citation_score
         
-        # --- COMPOSITE SCORE ---
-        # Average of semantic similarity, recency, and citation scores
-        composite_score = (abstract_similarity + recency_score + citation_score) / 3
+        # --- WEIGHTED COMPOSITE SCORE ---
+        composite_score = compute_composite_score(
+            similarity_score=abstract_similarity,
+            recency_score=recency_score,
+            citation_score=citation_score,
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma
+        )
         paper["composite_score"] = composite_score
+        
+        # Store weights for output
+        paper["alpha"] = alpha
+        paper["beta"] = beta
+        paper["gamma"] = gamma
     
     # Sort by composite score and keep top 5
     ranked_papers = sorted(papers, key=lambda x: x["composite_score"], reverse=True)[:5]
@@ -425,15 +489,23 @@ def rank_abstracts(query: str, papers: List[Dict]) -> List[Dict]:
     return ranked_papers
 
 
-def hierarchical_retrieve(query: str) -> List[Dict]:
+def hierarchical_retrieve(
+    query: str,
+    alpha: float = 0.8,
+    beta: float = 0.0,
+    gamma: float = 0.0
+) -> List[Dict]:
     """
     Execute hierarchical retrieval: title filtering -> abstract ranking.
     
     Args:
         query: User's search query
+        alpha: Weight for semantic similarity (default 0.8)
+        beta: Weight for recency (default 0.1)
+        gamma: Weight for citations (default 0.1)
     
     Returns:
-        Top 5 papers with title and abstract similarity scores
+        Top 5 papers ranked by weighted composite score
     """
     # Stage 1: Retrieve up to 20 papers and rank by titles (keep top 10)
     papers = search_pubmed(query)
@@ -442,8 +514,8 @@ def hierarchical_retrieve(query: str) -> List[Dict]:
     
     papers = rank_titles(query, papers)
     
-    # Stage 2: Rank top 10 by abstracts (keep top 5)
-    papers = rank_abstracts(query, papers)
+    # Stage 2: Rank top 10 by abstracts (keep top 5) with weighted scoring
+    papers = rank_abstracts(query, papers, alpha=0.8, beta=0.1, gamma=0.1)
     
     return papers
 
@@ -564,7 +636,7 @@ compiled_graph = graph.compile()
 
 def format_ranked_papers(query: str, papers: List[Dict]) -> str:
     """
-    Format ranked papers for display with all metrics.
+    Format ranked papers for display with all metrics and weights.
     
     Args:
         query: Original search query
@@ -577,8 +649,24 @@ def format_ranked_papers(query: str, papers: List[Dict]) -> str:
         return f"Query: {query}\n\nNo papers found."
     
     output = f"Query: {query}\n\n"
-    output += "Top 5 Ranked Papers (By Composite Score)\n"
+    output += "Top 5 Ranked Papers (By Weighted Composite Score)\n"
     output += "=" * 90 + "\n\n"
+    
+    # Display weights from first paper (same for all)
+    if papers:
+        alpha = papers[0].get('alpha', 0.8)
+        beta = papers[0].get('beta', 0.1)
+        gamma = papers[0].get('gamma', 0.1)
+        total = alpha + beta + gamma
+        alpha_norm = alpha / total if total > 0 else 0
+        beta_norm = beta / total if total > 0 else 0
+        gamma_norm = gamma / total if total > 0 else 0
+        
+        output += f"Scoring Weights (normalized):\n"
+        output += f"  Alpha (Similarity):  {alpha_norm:.4f}\n"
+        output += f"  Beta (Recency):      {beta_norm:.4f}\n"
+        output += f"  Gamma (Citations):   {gamma_norm:.4f}\n"
+        output += "\n" + "-" * 90 + "\n\n"
     
     for rank, paper in enumerate(papers, 1):
         output += f"Rank: {rank}\n"
