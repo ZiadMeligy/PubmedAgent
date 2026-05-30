@@ -9,6 +9,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from langgraph.graph import StateGraph, END
 from langchain_groq import ChatGroq
+import requests
+import math
+from datetime import datetime
 
 from langchain_core.messages import (
     BaseMessage,
@@ -74,6 +77,222 @@ def compute_similarity(query_embedding: np.ndarray, document_embeddings: np.ndar
 
 
 # -------------------------
+# ABSTRACT CHUNKING
+# -------------------------
+
+def chunk_abstract(abstract: str, sentences_per_chunk: int = 2) -> List[str]:
+    """
+    Split abstract into semantic chunks (2-4 sentences per chunk).
+    
+    Args:
+        abstract: Full abstract text
+        sentences_per_chunk: Number of sentences per chunk (default 2)
+    
+    Returns:
+        List of abstract chunks
+    """
+    if not abstract or abstract == "No abstract available":
+        return [abstract]
+    
+    # Split by periods followed by space (simple sentence splitter)
+    # Handle edge cases like "et al.", "Dr.", "etc."
+    sentences = re.split(r'(?<=[.!?])\s+', abstract.strip())
+    
+    chunks = []
+    for i in range(0, len(sentences), sentences_per_chunk):
+        chunk = ' '.join(sentences[i:i+sentences_per_chunk])
+        if chunk.strip():
+            chunks.append(chunk.strip())
+    
+    return chunks if chunks else [abstract]
+
+
+# -------------------------
+# SCORING FUNCTIONS
+# -------------------------
+
+def compute_recency_score(publication_year: int) -> float:
+    """
+    Compute recency score normalized to [0, 1].
+    
+    Newer papers receive higher scores using exponential decay.
+    
+    Args:
+        publication_year: Year of publication (e.g., 2024)
+    
+    Returns:
+        Recency score in range [0, 1]
+    """
+    if publication_year is None:
+        return 0.0
+    
+    current_year = datetime.now().year
+    years_ago = max(0, current_year - publication_year)
+    
+    # Exponential decay: e^(-decay_rate * years_ago)
+    # decay_rate = 0.15 means papers lose ~14% of recency per year
+    decay_rate = 0.15
+    recency = np.exp(-decay_rate * years_ago)
+    
+    return float(recency)
+
+
+def compute_citation_score(citation_count: int) -> float:
+    """
+    Compute citation score normalized to [0, 1] using log scaling.
+    
+    Args:
+        citation_count: Number of citations
+    
+    Returns:
+        Citation score in range [0, 1]
+    """
+    if citation_count is None or citation_count <= 0:
+        return 0.0
+    
+    # Log scale: log(1 + citations) normalized
+    # Using log1p for better numerical stability
+    log_citations = np.log1p(citation_count)
+    
+    # Normalize by assuming max reasonable citations (e.g., 10000)
+    # This puts highly cited papers (>10000 citations) near 1.0
+    max_log = np.log1p(10000)
+    citation_score = min(1.0, log_citations / max_log)
+    
+    return float(citation_score)
+
+
+# -------------------------
+# CITATION RETRIEVAL (DOI-based)
+# -------------------------
+
+class PubMedCitationFinder:
+    """Retrieve citation counts from OpenAlex and Semantic Scholar via DOI."""
+    
+    PUBMED_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    OPENALEX_BASE = "https://api.openalex.org"
+    SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.timeout = 5
+
+    def get_paper_info_from_pmid(self, pmid: str) -> dict:
+        """Extract DOI from PubMed ID."""
+        try:
+            url = f"{self.PUBMED_BASE}/esummary.fcgi"
+            params = {
+                "db": "pubmed",
+                "id": pmid,
+                "retmode": "json",
+            }
+            response = self.session.get(url, params=params, timeout=5)
+            response.raise_for_status()
+
+            article = response.json()["result"][str(pmid)]
+
+            doi = None
+            for item in article.get("articleids", []):
+                if item.get("idtype") == "doi":
+                    doi = item["value"]
+                    break
+
+            if not doi:
+                return None
+
+            return {
+                "pmid": pmid,
+                "title": article.get("title"),
+                "doi": doi,
+            }
+        except Exception:
+            return None
+
+    def get_openalex_metrics(self, doi: str) -> dict:
+        """Get citation count from OpenAlex via DOI."""
+        try:
+            doi_clean = doi.lower().replace("https://doi.org/", "")
+            url = f"{self.OPENALEX_BASE}/works/https://doi.org/{doi_clean}"
+            response = self.session.get(url, timeout=5)
+
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            return {
+                "openalex_citations": data.get("cited_by_count"),
+            }
+        except Exception:
+            return None
+
+    def get_semantic_scholar_metrics(self, doi: str) -> dict:
+        """Get citation count from Semantic Scholar via DOI."""
+        try:
+            doi_clean = doi.lower().replace("https://doi.org/", "")
+            url = f"{self.SEMANTIC_SCHOLAR_BASE}/paper/DOI:{doi_clean}"
+            params = {"fields": "citationCount"}
+            response = self.session.get(url, params=params, timeout=5)
+
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            return {
+                "semantic_scholar_citations": data.get("citationCount"),
+            }
+        except Exception:
+            return None
+
+    def get_citations_for_pmid(self, pmid: str) -> int:
+        """
+        Get citation count for a paper using PMID.
+        
+        Returns the maximum citation count from available sources.
+        """
+        try:
+            paper_info = self.get_paper_info_from_pmid(pmid)
+            if not paper_info or not paper_info.get("doi"):
+                return 0
+
+            doi = paper_info["doi"]
+            
+            # Try OpenAlex first (usually more complete)
+            openalex = self.get_openalex_metrics(doi) or {}
+            openalex_citations = openalex.get("openalex_citations", 0) or 0
+            
+            # Try Semantic Scholar as backup
+            semantic = self.get_semantic_scholar_metrics(doi) or {}
+            semantic_citations = semantic.get("semantic_scholar_citations", 0) or 0
+            
+            # Return the maximum available
+            return max(int(openalex_citations), int(semantic_citations))
+        except Exception:
+            return 0
+
+
+# Initialize citation finder
+_citation_finder = PubMedCitationFinder()
+
+
+def get_citations_for_pmid(pubmed_id: str) -> int:
+    """
+    Retrieve citation count for a PubMed ID.
+    
+    Uses DOI lookup via OpenAlex and Semantic Scholar APIs.
+    
+    Args:
+        pubmed_id: PubMed ID string
+    
+    Returns:
+        Citation count (0 if unavailable)
+    """
+    if not pubmed_id or pubmed_id == "N/A":
+        return 0
+    
+    return _citation_finder.get_citations_for_pmid(pubmed_id)
+
+
+# -------------------------
 # RETRIEVAL FUNCTIONS
 # -------------------------
 
@@ -100,11 +319,25 @@ def search_pubmed(query: str) -> List[Dict]:
         pubmed_id_raw = article.pubmed_id or "N/A"
         pubmed_id = pubmed_id_raw.split()[0] if pubmed_id_raw != "N/A" else "N/A"
         
+        # Extract publication year
+        publication_year = None
+        if hasattr(article, 'publication_date') and article.publication_date:
+            try:
+                # publication_date is typically a datetime object or string
+                if isinstance(article.publication_date, str):
+                    publication_year = int(article.publication_date.split('-')[0]) if article.publication_date else None
+                else:
+                    publication_year = article.publication_date.year if hasattr(article.publication_date, 'year') else None
+            except (ValueError, AttributeError):
+                publication_year = None
+        
         papers.append({
             "title": title,
             "abstract": abstract,
             "pubmed_id": pubmed_id,
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/"
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/",
+            "publication_year": publication_year,
+            "citation_count": None,  # Will be filled later
         })
 
     return papers
@@ -142,32 +375,52 @@ def rank_titles(query: str, papers: List[Dict]) -> List[Dict]:
 
 def rank_abstracts(query: str, papers: List[Dict]) -> List[Dict]:
     """
-    Stage 2: Rank papers by abstract similarity.
+    Stage 2: Rank papers by abstract similarity using chunk-based retrieval.
+    
+    Also compute recency scores, citation scores, and composite scores.
     
     Args:
         query: User's search query
         papers: Top 10 papers from title ranking
     
     Returns:
-        Top 5 papers ranked by abstract similarity
+        Top 5 papers ranked by composite score
     """
-    abstracts = [paper["abstract"] for paper in papers]
-    
-    # Get embeddings
     query_embedding = get_embeddings([query], use_instruction=True)[0]
-    abstract_embeddings = get_embeddings(abstracts, use_instruction=False)
     
-    # Compute similarities
-    abstract_similarities = compute_similarity(query_embedding, abstract_embeddings)
+    # Process each paper
+    for paper in papers:
+        # --- ABSTRACT CHUNKING AND SIMILARITY ---
+        abstract = paper["abstract"]
+        chunks = chunk_abstract(abstract)
+        
+        # Embed all chunks
+        chunk_embeddings = get_embeddings(chunks, use_instruction=False)
+        
+        # Compute similarities for each chunk
+        chunk_similarities = compute_similarity(query_embedding, chunk_embeddings)
+        
+        # Use maximum chunk similarity as the paper's abstract score
+        abstract_similarity = float(np.max(chunk_similarities)) if len(chunk_similarities) > 0 else 0.0
+        paper["abstract_similarity"] = abstract_similarity
+        
+        # --- RECENCY SCORE ---
+        recency_score = compute_recency_score(paper["publication_year"])
+        paper["recency_score"] = recency_score
+        
+        # --- CITATION COUNT AND CITATION SCORE ---
+        citation_count = get_citations_for_pmid(paper["pubmed_id"])
+        paper["citation_count"] = citation_count
+        citation_score = compute_citation_score(citation_count)
+        paper["citation_score"] = citation_score
+        
+        # --- COMPOSITE SCORE ---
+        # Average of semantic similarity, recency, and citation scores
+        composite_score = (abstract_similarity + recency_score + citation_score) / 3
+        paper["composite_score"] = composite_score
     
-    # Add similarity scores
-    for i, paper in enumerate(papers):
-        paper["abstract_similarity"] = float(abstract_similarities[i])
-        # Compute final similarity as average of title and abstract similarity
-        paper["final_similarity"] = (paper["title_similarity"] + paper["abstract_similarity"]) / 2
-    
-    # Sort by final similarity and keep top 5
-    ranked_papers = sorted(papers, key=lambda x: x["final_similarity"], reverse=True)[:5]
+    # Sort by composite score and keep top 5
+    ranked_papers = sorted(papers, key=lambda x: x["composite_score"], reverse=True)[:5]
     
     return ranked_papers
 
@@ -311,11 +564,11 @@ compiled_graph = graph.compile()
 
 def format_ranked_papers(query: str, papers: List[Dict]) -> str:
     """
-    Format ranked papers for display.
+    Format ranked papers for display with all metrics.
     
     Args:
         query: Original search query
-        papers: List of ranked papers with similarity scores
+        papers: List of ranked papers with all scores
     
     Returns:
         Formatted string output
@@ -324,18 +577,22 @@ def format_ranked_papers(query: str, papers: List[Dict]) -> str:
         return f"Query: {query}\n\nNo papers found."
     
     output = f"Query: {query}\n\n"
-    output += "Top 5 Ranked Papers\n"
-    output += "=" * 70 + "\n\n"
+    output += "Top 5 Ranked Papers (By Composite Score)\n"
+    output += "=" * 90 + "\n\n"
     
     for rank, paper in enumerate(papers, 1):
         output += f"Rank: {rank}\n"
-        output += f"Title Similarity: {paper['title_similarity']:.4f}\n"
-        output += f"Abstract Similarity: {paper['abstract_similarity']:.4f}\n"
-        output += f"Final Similarity: {paper['final_similarity']:.4f}\n"
         output += f"Title: {paper['title']}\n"
+        output += f"Publication Year: {paper['publication_year'] if paper['publication_year'] else 'Unknown'}\n"
         output += f"PubMed ID: {paper['pubmed_id']}\n"
         output += f"URL: {paper['url']}\n"
-        output += "-" * 70 + "\n\n"
+        output += "\n"
+        output += f"  Abstract Similarity:  {paper['abstract_similarity']:.4f}\n"
+        output += f"  Recency Score:       {paper['recency_score']:.4f}\n"
+        output += f"  Citation Count:      {paper['citation_count']}\n"
+        output += f"  Citation Score:      {paper['citation_score']:.4f}\n"
+        output += f"  Composite Score:     {paper['composite_score']:.4f}\n"
+        output += "-" * 90 + "\n\n"
     
     return output
 
