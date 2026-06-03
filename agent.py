@@ -199,7 +199,6 @@ def compute_composite_score(
     # Compute weighted score
     composite = (
         alpha_norm * similarity_score +
-        beta_norm * recency_score +
         gamma_norm * citation_score
     )
     
@@ -351,11 +350,12 @@ def search_pubmed(query: str) -> List[Dict]:
         List of paper dictionaries with metadata
     """
     pubmed = PubMed(tool="pubmed", email="your_email@example.com")
-    results = list(pubmed.query(query, max_results=20))
-
+    results = list(pubmed.query(query, max_results=100))
+    print(f"Retrieved {len(results)} papers from PubMed for query: '{query}'")
     papers = []
 
     for article in results:
+        print(article.publication_date, article.title)
         title = article.title or "No title"
         abstract = article.abstract or "No abstract available"
         
@@ -412,7 +412,7 @@ def rank_titles(query: str, papers: List[Dict]) -> List[Dict]:
         paper["title_similarity"] = float(title_similarities[i])
     
     # Sort by title similarity and keep top 10
-    ranked_papers = sorted(papers, key=lambda x: x["title_similarity"], reverse=True)[:10]
+    ranked_papers = sorted(papers, key=lambda x: x["title_similarity"], reverse=True)[:40]
     
     return ranked_papers
 
@@ -515,7 +515,7 @@ def hierarchical_retrieve(
     papers = rank_titles(query, papers)
     
     # Stage 2: Rank top 10 by abstracts (keep top 5) with weighted scoring
-    papers = rank_abstracts(query, papers, alpha=0.8, beta=0.1, gamma=0.1)
+    papers = rank_abstracts(query, papers, alpha=0.9, beta=0.0, gamma=0.3)
     
     return papers
 
@@ -535,22 +535,179 @@ llm = ChatGroq(
 # -------------------------
 
 def model_call(state: AgentState):
-    """Call the LLM without function calling - instead use prompt-based tool invocation"""
+    """Call the LLM to generate queries from clinical notes or analyze retrieved papers"""
     system_prompt = SystemMessage(
-        content="""You are a medical literature assistant with expertise in PubMed searches.
+        content="""You are a biomedical literature retrieval and analysis expert.
 
-When asked about medical research topics, you should:
-1. Identify what medical information is needed
-2. Call the search_pubmed tool by responding with a JSON block like this:
-   <TOOL_CALL>
-   {"tool": "search_pubmed", "query": "your search query here"}
-   </TOOL_CALL>
-3. Wait for the results
-4. Analyze and summarize the findings
+## YOUR ROLE:
 
-If you are shown search results, analyze them and provide a comprehensive answer.
+You assist doctors by:
+1. Converting clinical notes into simple, effective PubMed search queries
+2. Analyzing retrieved literature and providing clinical recommendations
 
-Be concise and focused on answering the user's question with the most relevant information."""
+## WHEN YOU RECEIVE A CLINICAL NOTE:
+
+Extract the core medical problem and generate a SIMPLE search query:
+- Keep queries SHORT (3-8 words maximum)
+- Use broad medical terms, not specific drug names
+- Focus on the disease/condition and treatment type
+- Avoid over-specifying - PubMed works better with fewer terms
+- Let PubMed's indexing do the work
+
+Then invoke the tool:
+<TOOL_CALL>
+{"tool": "search_pubmed", "query": "YOUR_SIMPLE_QUERY"}
+</TOOL_CALL>
+
+-------------------------------------------------------------------------------
+FEW-SHOT EXAMPLES
+-------------------------------------------------------------------------------
+
+Example 1
+
+Input:
+58-year-old male with type 2 diabetes and diabetic kidney disease.
+Persistent albuminuria and declining eGFR despite ACE inhibitor therapy,
+blood pressure control, and adequate glycemic management.
+
+Clinical Question:
+What therapies reduce albuminuria, preserve kidney function,
+and improve long-term renal outcomes in diabetic kidney disease?
+
+Query:
+"diabetic kidney disease renal protective therapy"
+-------------------------------------------------------------------------------
+
+Example 2
+
+Clinical Note:
+54-year-old female with rheumatoid arthritis.
+Persistent disease activity despite adequate methotrexate therapy.
+Ongoing joint pain, morning stiffness, and elevated inflammatory markers.
+
+Clinical Question:
+What evidence supports escalation to biologic or targeted therapies after methotrexate failure?
+
+Query:
+"rheumatoid arthritis biologic therapy methotrexate failure"
+
+-------------------------------------------------------------------------------
+Example 3
+
+Clinical Note:
+62-year-old male with stage III non-small cell lung cancer.
+Completed concurrent chemoradiotherapy.
+No evidence of progression.
+Question is whether immunotherapy consolidation should be added and what evidence supports its use.
+
+Clinical Question:
+What are the current immunotherapy strategies and outcomes for stage III NSCLC after chemoradiotherapy?
+
+Query:
+"stage III NSCLC immunotherapy consolidation"
+
+
+
+## LITERATURE ANALYSIS
+
+When ranked papers are returned, assume they have already been ranked by the retrieval system using semantic similarity, publication recency, and citation impact.
+
+Do NOT re-rank papers.
+
+Use the ranking provided.
+
+For each paper report:
+
+- Rank
+- Title
+- URL
+- Publication Year
+- Composite Score
+- Citation Count
+
+Then provide a concise evidence synthesis.
+
+---
+
+## REQUIRED OUTPUT FORMAT
+
+### Top Ranked Papers
+
+1. [Paper Title]
+   - Rank: #
+   - Composite Score: X.XXXX
+   - Citations: N
+   - Year: YYYY
+   - URL: LINK
+
+(repeat for all returned papers)
+
+---
+
+### Evidence Summary
+
+Provide a concise synthesis of the literature.
+
+Focus on:
+- Major treatment strategies
+- Consistent findings across studies
+- Areas of agreement
+- Areas of disagreement
+
+---
+
+### Comparative Findings
+
+Summarize how the approaches differ.
+
+Examples:
+- Immunotherapy vs chemotherapy
+- Targeted therapy vs standard care
+- Combination therapy vs monotherapy
+
+---
+
+### Strength of Evidence
+
+Discuss:
+
+- Highly cited influential studies
+- Recent studies that may represent current practice
+- Whether evidence is mature or emerging
+
+---
+
+### Clinical Takeaways
+
+Provide 3–5 practical clinical conclusions supported by the retrieved literature.
+
+Base recommendations only on the retrieved papers.
+
+---
+
+### Limitations
+
+Mention important limitations such as:
+
+- Small sample sizes
+- Early-phase trials
+- Lack of long-term outcomes
+- Limited generalizability
+- Conflicting evidence
+
+---
+
+## IMPORTANT
+
+Never invent study findings.
+
+Only discuss evidence that can reasonably be inferred from the retrieved papers.
+
+If abstracts are unavailable, clearly state that conclusions are limited.
+
+Treat the retrieval ranking as authoritative and use it to guide emphasis during synthesis.
+
+"""
     )
 
     messages = [system_prompt] + list(state["messages"])
@@ -579,9 +736,24 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                 
                 if tool_name == "search_pubmed":
                     query = tool_data.get("query")
-                    result = search_pubmed(query)
+                    
+                    # Execute hierarchical retrieval directly in tool node
+                    # This combines: search_pubmed -> rank_titles -> rank_abstracts
+                    ranked_papers = hierarchical_retrieve(query)
+                    
+                    # Format the refined results with all metrics
+                    formatted_results = format_ranked_papers(query, ranked_papers)
+                    
+                    # Return the refined top 5 papers with scores to the LLM
+                    result_message = f"""
+=== PUBMED SEARCH COMPLETE ===
+
+{formatted_results}
+
+"""
+                    
                     # Add the tool result as a message
-                    return {"messages": [HumanMessage(content=f"Search results for '{query}':\n\n{result}\n\nPlease analyze these results and provide a comprehensive answer to the user's original question.")]}
+                    return {"messages": [HumanMessage(content=result_message)]}
             except json.JSONDecodeError:
                 pass
     
@@ -690,13 +862,61 @@ def format_ranked_papers(query: str, papers: List[Dict]) -> str:
 # -------------------------
 
 if __name__ == "__main__":
-    # Test the hierarchical retrieval pipeline directly
-    query = "What are the latest treatments for stage III NSCLC using immunotherapy?"
+    # Initialize with a clinical note/query
+    clinical_note = """
+    58-year-old male with type 2 diabetes mellitus for 18 years.
+
+Current medications:
+- Metformin 1000 mg BID
+- Ramipril 10 mg daily
+- Amlodipine 5 mg daily
+- Atorvastatin 40 mg daily
+
+Clinical status:
+- Persistent macroalbuminuria (UACR 850 mg/g)
+- eGFR declined from 58 to 42 mL/min/1.73m² over the last 2 years
+- HbA1c 6.9%
+- Blood pressure 126/74 mmHg
+- Potassium 4.6 mmol/L
+
+Despite optimized ACE inhibitor therapy, blood pressure control, and acceptable glycemic control, kidney function continues to decline and albuminuria remains significantly elevated.
+
+Clinical Question:
+What evidence-based therapeutic strategies are available to reduce albuminuria, slow eGFR decline, decrease risk of progression to end-stage kidney disease, and improve long-term renal outcomes in patients with diabetic kidney disease already receiving standard-of-care therapy?
+
+Please focus on:
+- Additional pharmacologic interventions beyond ACE inhibitor therapy
+- Renal outcome trials
+- Albuminuria reduction
+- Preservation of kidney function
+- Combination treatment approaches
+- Cardiovascular-kidney outcome benefits
+- Current guideline-supported management strategies
+
+Identify the strongest clinical evidence and the most relevant randomized trials for treatment decision-making."""
     
-    print("Starting hierarchical retrieval...\n")
+    print("=" * 100)
+    print("BIOMEDICAL LITERATURE RETRIEVAL AGENT")
+    print("=" * 100)
+    print(f"\nClinical Note:\n{clinical_note}\n")
+    print("-" * 100)
+    print("Processing through agent graph...\n")
     
-    ranked_papers = hierarchical_retrieve(query)
+    # Initialize the agent state with the clinical note
+    initial_state = {"messages": [HumanMessage(content=clinical_note)]}
     
-    # Format and print results
-    output = format_ranked_papers(query, ranked_papers)
-    print(output)
+    # Run the compiled graph
+    final_result = compiled_graph.invoke(initial_state)
+    
+    # Extract and display the final LLM response
+    print("\n" + "=" * 100)
+    print("AGENT RESPONSE WITH CLINICAL ANALYSIS")
+    print("=" * 100)
+    
+    for message in final_result["messages"]:
+        if hasattr(message, 'content'):
+            print(message.content)
+    
+    print("\n" + "=" * 100)
+    print("WORKFLOW COMPLETE")
+    print("=" * 100)
