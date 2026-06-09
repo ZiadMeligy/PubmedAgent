@@ -41,8 +41,10 @@ def should_continue(state: AgentState) -> str:
         if has_tool_call:
             return "tools"
         
-        # Otherwise, it's a Q&A question
-        if content and not has_tool_call:
+        # Only route to qa when the last message is a HumanMessage (user question).
+        # An AIMessage here means the model just summarised the found papers — end Phase 1.
+        from langchain_core.messages import HumanMessage
+        if isinstance(last_message, HumanMessage) and content and not has_tool_call:
             return "qa"
     
     # Default: end

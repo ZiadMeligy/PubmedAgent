@@ -3,13 +3,16 @@ Vector database integration for medical paper chunks.
 Stores embeddings and metadata for semantic retrieval.
 """
 
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from typing import List, Dict, Optional
 import uuid
 import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer
 from src.config import QDRANT_COLLECTION_NAME, QDRANT_URL, EMBEDDING_DIMENSION, EMBEDDING_MODEL_NAME
+from src.embeddings import embedding_model
 
 
 class QdrantVectorStore:
@@ -19,7 +22,6 @@ class QdrantVectorStore:
         self,
         collection_name: str = QDRANT_COLLECTION_NAME,
         qdrant_url: str = QDRANT_URL,
-        embedding_model_name: str = EMBEDDING_MODEL_NAME,
         embedding_dim: int = EMBEDDING_DIMENSION
     ):
         """
@@ -28,12 +30,12 @@ class QdrantVectorStore:
         Args:
             collection_name: Name of Qdrant collection
             qdrant_url: URL of Qdrant server (use in-memory if None)
-            embedding_model_name: Name of embedding model
             embedding_dim: Dimension of embeddings
         """
         self.collection_name = collection_name
         self.embedding_dim = embedding_dim
-        self.embedding_model = SentenceTransformer(embedding_model_name)
+        # Reuse the shared singleton model from src.embeddings (already loaded, no deadlock)
+        self.embedding_model = embedding_model
         
         # Initialize Qdrant client
         try:
@@ -132,16 +134,17 @@ class QdrantVectorStore:
         ).tolist()
         
         # Search in Qdrant
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=limit,
-            score_threshold=score_threshold
+            score_threshold=score_threshold,
+            with_payload=True
         )
         
         # Extract results
         retrieved_chunks = []
-        for result in results:
+        for result in results.points:
             chunk_data = result.payload
             retrieved_chunks.append({
                 'score': result.score,
@@ -150,6 +153,7 @@ class QdrantVectorStore:
                 'title': chunk_data.get('title'),
                 'year': chunk_data.get('year'),
                 'journal': chunk_data.get('journal'),
+                'url': chunk_data.get('url'),
                 'section': chunk_data.get('section'),
                 'chunk_id': chunk_data.get('chunk_id')
             })

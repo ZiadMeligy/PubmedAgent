@@ -64,11 +64,11 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     
                     # Return the refined top 5 papers with scores to the LLM
                     result_message = f"""
-=== PUBMED SEARCH COMPLETE ===
+                        === PUBMED SEARCH COMPLETE ===
 
-{formatted_results}
+                        {formatted_results}
 
-"""
+                        """
                     
                     # Add the tool result as a message and mark papers as found
                     return {

@@ -14,8 +14,10 @@ load_dotenv()
 
 llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
-    model="llama-3.3-70b-versatile",
-    temperature=0
+    model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    temperature=0,
+    request_timeout=30,  # fail fast instead of hanging indefinitely
+    max_retries=1,
 )
 
 # -------------------------

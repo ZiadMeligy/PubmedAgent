@@ -1,6 +1,5 @@
-"""
-Embedding models and functions for semantic similarity computation.
-"""
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from typing import List
 import numpy as np

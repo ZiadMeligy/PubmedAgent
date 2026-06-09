@@ -36,6 +36,7 @@ class PaperAbstractStore:
             title = paper.get('title', 'Unknown')
             year = paper.get('publication_year')
             journal = paper.get('journal', 'Unknown')
+            url = paper.get('url', f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/")
             
             # Chunk the abstract (2-4 sentences per chunk)
             chunks = chunk_abstract(abstract, sentences_per_chunk=3)
@@ -49,6 +50,7 @@ class PaperAbstractStore:
                     'title': title,
                     'year': year,
                     'journal': journal,
+                    'url': url,
                     'section': 'Abstract',
                     'chunk_id': f"{pmid}_chunk_{i}"
                 })
