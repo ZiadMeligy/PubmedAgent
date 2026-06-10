@@ -6,7 +6,8 @@ import json
 import re
 from typing import TypedDict, Annotated, Sequence
 from operator import add as add_messages
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core import messages
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from src.llm.model import get_system_prompt, invoke_llm
 from src.llm.qa_model import get_qa_system_prompt, invoke_qa_model
 from src.llm.reranker import rerank_chunks, format_chunks_for_qa
@@ -19,7 +20,6 @@ class AgentState(TypedDict):
     """State for the agent workflow."""
     messages: Annotated[Sequence[BaseMessage], add_messages]
     papers_found: bool  # Track if papers have been found (for mode routing)
-    mode: str  # 'search' or 'qa'
 
 
 def model_call(state: AgentState):
@@ -58,7 +58,9 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     
                     # Add papers to Qdrant vector store
                     if ranked_papers:
+
                         paper_store = get_paper_store()
+
                         chunks_added = paper_store.add_papers_to_store(ranked_papers)
                         print(f"✓ Added {chunks_added} abstract chunks to vector store")
                     
@@ -72,9 +74,8 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     
                     # Add the tool result as a message and mark papers as found
                     return {
-                        "messages": [HumanMessage(content=result_message)],
-                        "papers_found": bool(ranked_papers),
-                        "mode": "qa"  # Switch to Q&A mode after papers found
+                        "messages": [AIMessage(content=result_message)],
+                        "papers_found": bool(ranked_papers)
                     }
             except json.JSONDecodeError:
                 pass
@@ -87,9 +88,7 @@ def qa_call(state: AgentState):
     """Call the Q&A model to answer questions about papers"""
     messages = list(state["messages"])
     last_message = messages[-1]
-    
-    # Extract the question
-    question = last_message.content if hasattr(last_message, 'content') else ""
+    question = last_message.content    
     
     # Retrieve relevant chunks from vector store
     paper_store = get_paper_store()

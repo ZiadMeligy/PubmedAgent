@@ -35,15 +35,16 @@ def build_graph():
     graph.add_edge("tools", "model")
     
     # From QA, check if we should continue or end
-    graph.add_conditional_edges(
-        "qa",
-        should_continue,
-        {
-            "tools": "tools",  # User wants to search again
-            "qa": "qa",  # Ask another question
-            "end": END
-        }
-    )
+    # graph.add_conditional_edges(
+    #     "qa",
+    #     should_continue,
+    #     {
+    #         "tools": "tools",  # User wants to search again
+    #         "qa": "qa",  # Ask another question
+    #         "end": END
+    #     }
+    # )
+    graph.add_edge("qa", END)
     
     return graph.compile()
 

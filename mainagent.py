@@ -16,7 +16,7 @@ The core functionality is organized in the src/ directory with specialized modul
     src/formatting/  - Output formatting utilities
 """
 
-from src.mainagent import main
+from src.mainagent2 import main
 
 if __name__ == "__main__":
     main()
