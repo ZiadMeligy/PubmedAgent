@@ -15,12 +15,13 @@ class PaperAbstractStore:
         """Initialize the vector store."""
         self.vector_store = QdrantVectorStore()
     
-    def add_papers_to_store(self, papers: List[Dict]) -> int:
+    def add_papers_to_store(self, papers: List[Dict], conversation_id: Optional[str] = None) -> int:
         """
         Chunk abstracts from papers and add to vector store.
         
         Args:
             papers: List of paper dictionaries with abstract, title, pmid, year, journal
+            conversation_id: Optional conversation ID to associate with the chunks
         
         Returns:
             Total number of chunks added
@@ -52,7 +53,8 @@ class PaperAbstractStore:
                     'journal': journal,
                     'url': url,
                     'section': 'Abstract',
-                    'chunk_id': f"{pmid}_chunk_{i}"
+                    'chunk_id': f"{pmid}_chunk_{i}",
+                    'conversation_id': conversation_id
                 })
             
             # Add chunks to vector store
@@ -62,18 +64,19 @@ class PaperAbstractStore:
         
         return total_chunks_added
     
-    def search_for_answer(self, query: str, top_k: int = 5) -> List[Dict]:
+    def search_for_answer(self, query: str, conversation_id: Optional[str] = None, top_k: int = 5) -> List[Dict]:
         """
         Search vector store for chunks relevant to query.
         
         Args:
             query: Question/query text
+            conversation_id: Optional conversation ID to filter by
             top_k: Number of chunks to retrieve
         
         Returns:
             List of relevant chunks with scores and metadata
         """
-        results = self.vector_store.search(query, limit=top_k, score_threshold=0.0)
+        results = self.vector_store.search(query, limit=top_k, score_threshold=0.0, conversation_id=conversation_id)
         return results
     
     def clear_store(self):

@@ -10,7 +10,7 @@ from typing import List, Dict, Optional
 import uuid
 import numpy as np
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from src.config import QDRANT_COLLECTION_NAME, QDRANT_URL, EMBEDDING_DIMENSION, EMBEDDING_MODEL_NAME
 from src.embeddings import embedding_model
 
@@ -114,7 +114,8 @@ class QdrantVectorStore:
         self,
         query: str,
         limit: int = 5,
-        score_threshold: float = 0.0
+        score_threshold: float = 0.0,
+        conversation_id: Optional[str] = None
     ) -> List[Dict]:
         """
         Search for relevant chunks using semantic similarity.
@@ -123,6 +124,7 @@ class QdrantVectorStore:
             query: Query text
             limit: Number of results to return
             score_threshold: Minimum similarity score
+            conversation_id: Optional conversation ID to filter by
         
         Returns:
             List of relevant chunks with scores
@@ -133,12 +135,25 @@ class QdrantVectorStore:
             normalize_embeddings=True
         ).tolist()
         
+        # Build filter if conversation_id is provided
+        query_filter = None
+        if conversation_id:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="conversation_id",
+                        match=MatchValue(value=conversation_id)
+                    )
+                ]
+            )
+
         # Search in Qdrant
         results = self.client.query_points(
             collection_name=self.collection_name,
             query=query_embedding,
             limit=limit,
             score_threshold=score_threshold,
+            query_filter=query_filter,
             with_payload=True
         )
         

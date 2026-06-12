@@ -13,14 +13,14 @@ def build_graph():
     graph = StateGraph(AgentState)
     
     # Add nodes
-    graph.add_node("model", model_call)  # Paper search mode - generates queries
+    graph.add_node("model", model_call)  # Analyzes intent (search, qa, chat)
     graph.add_node("tools", execute_tools_if_needed)  # Execute PubMed search & store abstracts
     graph.add_node("qa", qa_call)  # Q&A mode - answers questions
     
     # Set entry point
     graph.set_entry_point("model")
     
-    # Add conditional edges from model (routes to tools or end)
+    # Add conditional edges from model
     graph.add_conditional_edges(
         "model",
         should_continue,
@@ -31,19 +31,8 @@ def build_graph():
         }
     )
     
-    # From tools, go back to model (to display papers or answer)
-    graph.add_edge("tools", "model")
-    
-    # From QA, check if we should continue or end
-    # graph.add_conditional_edges(
-    #     "qa",
-    #     should_continue,
-    #     {
-    #         "tools": "tools",  # User wants to search again
-    #         "qa": "qa",  # Ask another question
-    #         "end": END
-    #     }
-    # )
+    # Nodes return to end directly
+    graph.add_edge("tools", END)
     graph.add_edge("qa", END)
     
     return graph.compile()
