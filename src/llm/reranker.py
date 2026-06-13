@@ -43,6 +43,7 @@ def rerank_chunks(query: str, chunks: List[Dict], top_k: int = 3) -> List[Dict]:
 def format_chunks_for_qa(chunks: List[Dict]) -> str:
     """
     Format reranked chunks for Q&A model context.
+    Deduplicates sources to include paper metadata only once.
     
     Args:
         chunks: List of reranked chunks with metadata
@@ -56,14 +57,34 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
     context = "RELEVANT ABSTRACT CHUNKS:\n"
     context += "=" * 80 + "\n\n"
     
-    for i, chunk in enumerate(chunks, 1):
-        context += f"[Chunk {i}]\n"
-        context += f"Paper: {chunk.get('title', 'Unknown')}\n"
-        context += f"PMID: {chunk.get('pmid', 'Unknown')}\n"
-        context += f"""URL: {chunk.get('url') or f"https://pubmed.ncbi.nlm.nih.gov/{chunk.get('pmid')}/"}\n"""
-        context += f"Year: {chunk.get('year', 'Unknown')}\n"
-        context += f"Relevance Score: {chunk.get('rerank_score', 0):.4f}\n"
-        context += f"\nText:\n{chunk['text']}\n\n"
+    # Group by PMID
+    papers = {}
+    for chunk in chunks:
+        pmid = chunk.get('pmid', 'Unknown')
+        if pmid not in papers:
+            papers[pmid] = {
+                'title': chunk.get('title', 'Unknown'),
+                'year': chunk.get('year', 'Unknown'),
+                'journal': chunk.get('journal', 'Unknown'),
+                'url': chunk.get('url') or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                'chunks': []
+            }
+        papers[pmid]['chunks'].append({
+            'text': chunk.get('text', ''),
+            'score': chunk.get('rerank_score', 0)
+        })
+        
+    for pmid, paper in papers.items():
+        context += f"PAPER TITLE:\n{paper['title']}\n\n"
+        context += f"PMID:\n{pmid}\n\n"
+        context += f"YEAR:\n{paper['year']}\n\n"
+        context += f"JOURNAL:\n{paper['journal']}\n\n"
+        context += f"URL:\n{paper['url']}\n\n"
+        
+        for i, chunk in enumerate(paper['chunks'], 1):
+            context += f"ABSTRACT CHUNK (Relevance Score: {chunk['score']:.4f}):\n"
+            context += f"{chunk['text']}\n\n"
+            
         context += "-" * 80 + "\n\n"
     
     return context

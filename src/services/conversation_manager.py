@@ -1,56 +1,49 @@
 """
-Manages chat histories and state per conversation in-memory.
-Designed to be easily replaced by Redis or a database in the future.
+Manages chat histories and state per conversation using persistent storage.
 """
 
 from typing import Dict, List, Any
-import datetime
 from langchain_core.messages import BaseMessage
+from src.storage.conversation_repository import get_conversation_repository
 
 class ConversationManager:
     
     def __init__(self):
-        # Maps conversation_id to conversation state
-        self.conversations: Dict[str, Dict[str, Any]] = {}
+        self.repo = get_conversation_repository()
         
     def create_conversation(self, conversation_id: str) -> None:
         """Create a new conversation."""
-        if conversation_id not in self.conversations:
-            self.conversations[conversation_id] = {
-                "messages": [],
-                "papers_found": False,
-                "timestamp": datetime.datetime.now().isoformat()
-            }
+        self.repo.create_conversation(conversation_id)
             
     def get_conversation(self, conversation_id: str) -> Dict[str, Any]:
         """Get an existing conversation."""
-        if conversation_id not in self.conversations:
+        conv = self.repo.get_conversation(conversation_id)
+        if not conv:
             self.create_conversation(conversation_id)
-        return self.conversations[conversation_id]
+            return self.repo.get_conversation(conversation_id)
+        return conv
         
     def append_message(self, conversation_id: str, message: BaseMessage) -> None:
         """Append a message to the conversation."""
-        conv = self.get_conversation(conversation_id)
-        conv["messages"].append(message)
-        conv["timestamp"] = datetime.datetime.now().isoformat()
+        self.repo.append_message(conversation_id, message)
         
     def get_messages(self, conversation_id: str) -> List[BaseMessage]:
         """Get all messages for a conversation."""
-        return self.get_conversation(conversation_id)["messages"]
+        conv = self.get_conversation(conversation_id)
+        return conv["messages"]
         
     def set_papers_found(self, conversation_id: str, found: bool) -> None:
         """Update papers_found state."""
-        conv = self.get_conversation(conversation_id)
-        conv["papers_found"] = found
+        self.repo.update_papers_found(conversation_id, found)
         
     def get_papers_found(self, conversation_id: str) -> bool:
         """Get papers_found state."""
-        return self.get_conversation(conversation_id)["papers_found"]
+        conv = self.get_conversation(conversation_id)
+        return conv["papers_found"]
         
     def clear_conversation(self, conversation_id: str) -> None:
         """Clear a conversation."""
-        if conversation_id in self.conversations:
-            del self.conversations[conversation_id]
+        self.repo.delete_conversation(conversation_id)
 
 # Global instance
 _conversation_manager = None

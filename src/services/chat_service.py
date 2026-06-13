@@ -1,41 +1,133 @@
-# src/services/chat_service.py
+"""
+Chat service layer — all LangGraph orchestration lives here.
+FastAPI routes call this service exclusively.
+"""
 
-from langchain_core.messages import HumanMessage
+import logging
+from langchain_core.messages import HumanMessage, AIMessage
 from src.graph.builder import compiled_graph
 from src.services.conversation_manager import get_conversation_manager
+from src.api.schemas import (
+    PaperSearchResponse, PaperResult,
+    QAResponse, ReferenceResult,
+    ChatResponse, ErrorResponse,
+)
+
+logger = logging.getLogger(__name__)
+
 
 class ChatService:
 
     def __init__(self):
         self.conversation_manager = get_conversation_manager()
 
-    def chat(self, conversation_id: str, user_message: str) -> dict:
+    def chat(self, conversation_id: str, user_message: str):
         """
         Process a user message for a specific conversation.
+        Returns a typed Pydantic response model.
         """
-        # Load conversation state
-        conv = self.conversation_manager.get_conversation(conversation_id)
-        
-        # Build state
-        state = {
-            "messages": conv["messages"] + [HumanMessage(content=user_message)],
-            "papers_found": conv["papers_found"],
-            "conversation_id": conversation_id
-        }
+        try:
+            # 1. Ensure conversation exists
+            self.conversation_manager.get_conversation(conversation_id)
 
-        # Invoke LangGraph
-        result = compiled_graph.invoke(state)
+            # 2. Save user message
+            human_msg = HumanMessage(content=user_message)
+            self.conversation_manager.append_message(conversation_id, human_msg)
 
-        # Update manager state
-        self.conversation_manager.conversations[conversation_id]["messages"] = result["messages"]
-        self.conversation_manager.conversations[conversation_id]["papers_found"] = result["papers_found"]
-        
-        # Get latest message content
-        response_content = result["messages"][-1].content if result["messages"] else ""
+            # 3. Get full history
+            messages = self.conversation_manager.get_messages(conversation_id)
+            papers_found = self.conversation_manager.get_papers_found(conversation_id)
 
-        return {
-            "conversation_id": conversation_id,
-            "response": response_content,
-            "papers_found": result["papers_found"],
-            "timestamp": self.conversation_manager.conversations[conversation_id]["timestamp"]
-        }
+            # 4. Build state
+            state = {
+                "messages": messages,
+                "papers_found": papers_found,
+                "conversation_id": conversation_id,
+                "response_type": "chat",
+                "latest_papers": [],
+                "latest_references": [],
+            }
+
+            # 5. Invoke LangGraph
+            result = compiled_graph.invoke(state)
+
+            # 6. Persist new messages produced by the graph
+            new_messages = result["messages"][len(messages):]
+            for msg in new_messages:
+                self.conversation_manager.append_message(conversation_id, msg)
+
+            self.conversation_manager.set_papers_found(
+                conversation_id, result["papers_found"]
+            )
+
+            # 7. Build typed response
+            response_type = result.get("response_type", "chat")
+            latest_content = (
+                result["messages"][-1].content if result["messages"] else ""
+            )
+
+            if response_type == "paper_search":
+                return self._build_paper_search_response(
+                    conversation_id, result, latest_content
+                )
+            elif response_type == "qa":
+                return self._build_qa_response(
+                    conversation_id, result, latest_content
+                )
+            else:
+                return ChatResponse(
+                    conversation_id=conversation_id,
+                    response=latest_content,
+                )
+
+        except Exception as e:
+            logger.exception(f"Error processing chat for {conversation_id}")
+            return ErrorResponse(
+                conversation_id=conversation_id,
+                message=str(e),
+            )
+
+    # ── Private helpers ──────────────────────────────────────────
+
+    def _build_paper_search_response(
+        self, conversation_id: str, result: dict, text_response: str
+    ) -> PaperSearchResponse:
+        papers = []
+        for i, p in enumerate(result.get("latest_papers", []), 1):
+            papers.append(
+                PaperResult(
+                    rank=i,
+                    title=p.get("title", ""),
+                    url=p.get("url", ""),
+                    journal=p.get("journal"),
+                    publication_year=p.get("publication_year"),
+                    citation_count=p.get("citation_count"),
+                    similarity_score=p.get("abstract_similarity"),
+                    composite_score=p.get("composite_score"),
+                )
+            )
+        return PaperSearchResponse(
+            conversation_id=conversation_id,
+            response=text_response,
+            papers_found=result["papers_found"],
+            papers=papers,
+        )
+
+    def _build_qa_response(
+        self, conversation_id: str, result: dict, text_response: str
+    ) -> QAResponse:
+        refs = []
+        for r in result.get("latest_references", []):
+            refs.append(
+                ReferenceResult(
+                    title=r.get("title", ""),
+                    pmid=r.get("pmid", ""),
+                    url=r.get("url", ""),
+                    year=r.get("year"),
+                )
+            )
+        return QAResponse(
+            conversation_id=conversation_id,
+            response=text_response,
+            references=refs,
+        )

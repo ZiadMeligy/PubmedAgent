@@ -2,6 +2,8 @@
 PubMed search and hierarchical ranking functionality.
 """
 
+import logging
+
 from typing import List, Dict
 import numpy as np
 from pymed import PubMed
@@ -17,6 +19,8 @@ from src.config import (
     SCORE_BETA,
     SCORE_GAMMA
 )
+
+logger = logging.getLogger(__name__)
 
 
 # -------------------------
@@ -35,11 +39,11 @@ def search_pubmed(query: str) -> List[Dict]:
     """
     pubmed = PubMed(tool="pubmed", email="your_email@example.com")
     results = list(pubmed.query(query, max_results=PUBMED_MAX_RESULTS))
-    print(f"Retrieved {len(results)} papers from PubMed for query: '{query}'")
+    logger.info(f"Retrieved {len(results)} papers from PubMed for query: '{query}'")
     papers = []
 
     for article in results:
-        print(article.publication_date, article.title)
+        logger.debug(f"{article.publication_date} {article.title}")
         title = article.title or "No title"
         abstract = article.abstract or "No abstract available"
         

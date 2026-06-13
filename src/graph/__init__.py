@@ -2,9 +2,11 @@
 Graph nodes for the LangGraph workflow with paper search and Q&A modes.
 """
 
+import os
 import json
 import re
-from typing import TypedDict, Annotated, Sequence
+import logging
+from typing import TypedDict, Annotated, Sequence, List, Dict, Any
 from operator import add as add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from src.llm.model import get_system_prompt, invoke_llm
@@ -15,12 +17,17 @@ from src.formatting import format_ranked_papers
 from src.storage.paper_manager import get_paper_store
 from src.services.paper_store import get_conversation_paper_store
 
+logger = logging.getLogger(__name__)
+
 
 class AgentState(TypedDict):
     """State for the agent workflow."""
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    papers_found: bool  # Track if papers have been found
-    conversation_id: str  # Conversation identifier
+    papers_found: bool
+    conversation_id: str
+    response_type: str
+    latest_papers: list
+    latest_references: list
 
 
 def model_call(state: AgentState):
@@ -30,7 +37,7 @@ def model_call(state: AgentState):
     messages = [system_prompt] + list(state["messages"])
     response = invoke_llm(messages)
     
-    return {"messages": [response]}
+    return {"messages": [response], "response_type": "chat"}
 
 
 def execute_tools_if_needed(state: AgentState) -> dict:
@@ -52,7 +59,6 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     query = tool_data.get("query")
                     
                     # Execute hierarchical retrieval directly in tool node
-                    # This combines: search_pubmed -> rank_titles -> rank_abstracts
                     ranked_papers = hierarchical_retrieve(query)
                     
                     # Store papers in the conversational paper store
@@ -63,7 +69,7 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                         # Add papers to Qdrant vector store
                         vector_store = get_paper_store()
                         chunks_added = vector_store.add_papers_to_store(ranked_papers, conversation_id=conversation_id)
-                        print(f"✓ Added {chunks_added} abstract chunks to vector store for conversation {conversation_id}")
+                        logger.info(f"Added {chunks_added} abstract chunks to vector store for conversation {conversation_id}")
                     
                     # Format the refined results with all metrics
                     formatted_results = format_ranked_papers(query, ranked_papers)
@@ -74,10 +80,12 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     # Add the tool result as a message and mark papers as found
                     return {
                         "messages": [result_message],
-                        "papers_found": bool(ranked_papers)
+                        "papers_found": bool(ranked_papers),
+                        "response_type": "paper_search",
+                        "latest_papers": ranked_papers
                     }
             except json.JSONDecodeError:
-                pass
+                logger.error("Failed to parse tool call JSON")
     
     # No tool call found or invalid format
     return {"messages": []}
@@ -103,9 +111,14 @@ def qa_call(state: AgentState):
     
     # Format chunks for Q&A model
     context = format_chunks_for_qa(reranked_chunks)
-    print("\n========== CONTEXT SENT TO QA ==========\n")
-    print(context)
-    print("\n========================================\n")
+    
+    if os.environ.get("DEBUG_QA_CONTEXT", "").lower() == "true":
+        logger.debug("QA CONTEXT being sent to model:")
+        for c in reranked_chunks:
+            logger.debug(f"  Title: {c.get('title')}")
+            logger.debug(f"  Score: {c.get('rerank_score')}")
+            logger.debug(f"  Chunk: {c.get('text', '')[:100]}...")
+        
     # Prepare messages for Q&A model with context
     qa_system_prompt = get_qa_system_prompt()
     qa_messages = [
@@ -116,4 +129,22 @@ def qa_call(state: AgentState):
     # Invoke Q&A model
     response = invoke_qa_model(qa_messages)
     
-    return {"messages": [response]}
+    # Extract references with deduplication
+    seen_pmids = set()
+    references = []
+    for c in reranked_chunks:
+        pmid = c.get('pmid')
+        if pmid and pmid not in seen_pmids:
+            seen_pmids.add(pmid)
+            references.append({
+                "title": c.get('title', 'Unknown'),
+                "pmid": pmid,
+                "url": c.get('url') or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                "year": c.get('year')
+            })
+    
+    return {
+        "messages": [response],
+        "response_type": "qa",
+        "latest_references": references
+    }
