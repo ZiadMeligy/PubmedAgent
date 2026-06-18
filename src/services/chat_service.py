@@ -21,7 +21,7 @@ class ChatService:
     def __init__(self):
         self.conversation_manager = get_conversation_manager()
 
-    def chat(self, conversation_id: str, user_message: str):
+    def chat(self, conversation_id: str, user_message: str, user_id: str = None):
         """
         Process a user message for a specific conversation.
         Returns a typed Pydantic response model.
@@ -37,6 +37,15 @@ class ChatService:
             # 3. Get full history
             messages = self.conversation_manager.get_messages(conversation_id)
             papers_found = self.conversation_manager.get_papers_found(conversation_id)
+            
+            # 3.5 Generate and save conversation title if this is the first message
+            if len(messages) == 1 and user_message:
+                title = user_message[:40] + ("..." if len(user_message) > 40 else "")
+                self.conversation_manager.repo.update_conversation_title(conversation_id, title)
+                
+            # Get user preferences
+            repo = self.conversation_manager.repo
+            prefs = repo.get_preferences(user_id) if user_id else {"alpha": 0.8, "beta": 0.1, "gamma": 0.1}
 
             # 4. Build state
             state = {
@@ -46,6 +55,9 @@ class ChatService:
                 "response_type": "chat",
                 "latest_papers": [],
                 "latest_references": [],
+                "alpha": prefs["alpha"],
+                "beta": prefs["beta"],
+                "gamma": prefs["gamma"],
             }
 
             # 5. Invoke LangGraph

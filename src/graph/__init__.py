@@ -28,6 +28,9 @@ class AgentState(TypedDict):
     response_type: str
     latest_papers: list
     latest_references: list
+    alpha: float
+    beta: float
+    gamma: float
 
 
 def model_call(state: AgentState):
@@ -59,7 +62,10 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     query = tool_data.get("query")
                     
                     # Execute hierarchical retrieval directly in tool node
-                    ranked_papers = hierarchical_retrieve(query)
+                    alpha = state.get("alpha", 0.8)
+                    beta = state.get("beta", 0.1)
+                    gamma = state.get("gamma", 0.1)
+                    ranked_papers = hierarchical_retrieve(query, alpha=alpha, beta=beta, gamma=gamma)
                     
                     # Store papers in the conversational paper store
                     if ranked_papers:

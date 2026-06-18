@@ -7,15 +7,58 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, LogOut, Moon, Sun, User, Mail, Calendar, Shield, Bell, Database, AlertCircle } from 'lucide-react';
+import { ArrowLeft, LogOut, Moon, Sun, User, Mail, Calendar, Shield, Bell, Database, AlertCircle, Sliders } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuthStore } from '@/lib/store';
 
 export default function SettingsPage() {
   const { user, loading, signOut, isConfigured } = useAuth();
   const { theme, setTheme } = useTheme();
   const [notifications, setNotifications] = useState(true);
   const [dataSharing, setDataSharing] = useState(false);
+  
+  const token = useAuthStore((s) => s.token);
+  const [alpha, setAlpha] = useState(0.8);
+  const [beta, setBeta] = useState(0.1);
+  const [gamma, setGamma] = useState(0.1);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    if (token) {
+      fetch('http://localhost:8000/settings', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.alpha !== undefined) {
+          setAlpha(d.alpha);
+          setBeta(d.beta);
+          setGamma(d.gamma);
+        }
+      });
+    }
+  }, [token]);
+
+  const saveRetrievalSettings = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('http://localhost:8000/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ alpha, beta, gamma })
+      });
+      if (res.ok) {
+        setSettingsSaved(true);
+        setTimeout(() => setSettingsSaved(false), 3000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   if (loading) {
     return (
@@ -153,7 +196,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <CardTitle>
-                  {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
+                  {user?.username || user?.email?.split('@')[0] || 'User'}
                 </CardTitle>
                 <CardDescription className="flex items-center gap-1 mt-1">
                   <Mail className="h-3 w-3" />
@@ -166,15 +209,11 @@ export default function SettingsPage() {
             <div className="grid gap-4 text-sm">
               <div className="flex items-center gap-3 text-muted-foreground">
                 <Calendar className="h-4 w-4" />
-                <span>Member since {user?.created_at ? formatDate(user.created_at) : 'N/A'}</span>
+                <span>Member since {formatDate(new Date().toISOString())}</span>
               </div>
               <div className="flex items-center gap-3 text-muted-foreground">
                 <Shield className="h-4 w-4" />
-                <span>
-                  {user?.last_sign_in_at
-                    ? `Last sign in: ${formatDate(user.last_sign_in_at)}`
-                    : 'First session'}
-                </span>
+                <span>Active Session</span>
               </div>
             </div>
             <Separator className="my-4" />
@@ -182,6 +221,39 @@ export default function SettingsPage() {
               <LogOut className="h-4 w-4 mr-2" />
               Sign Out
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Retrieval Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Sliders className="h-5 w-5" />
+              Retrieval Preferences
+            </CardTitle>
+            <CardDescription>Adjust the weights for hierarchical retrieval. Must sum to 1.0.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Semantic Similarity (Alpha: {alpha.toFixed(2)})</Label>
+              <input type="range" min="0" max="1" step="0.05" value={alpha} onChange={e => setAlpha(parseFloat(e.target.value))} className="w-full mt-2" />
+            </div>
+            <div>
+              <Label>Recency (Beta: {beta.toFixed(2)})</Label>
+              <input type="range" min="0" max="1" step="0.05" value={beta} onChange={e => setBeta(parseFloat(e.target.value))} className="w-full mt-2" />
+            </div>
+            <div>
+              <Label>Citation Impact (Gamma: {gamma.toFixed(2)})</Label>
+              <input type="range" min="0" max="1" step="0.05" value={gamma} onChange={e => setGamma(parseFloat(e.target.value))} className="w-full mt-2" />
+            </div>
+            <div className="flex justify-between items-center mt-4">
+              <span className={`text-sm ${(alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95 ? 'text-red-500' : 'text-green-500'}`}>
+                Sum: {(alpha + beta + gamma).toFixed(2)} {((alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95) && '(Must be ~1.00)'}
+              </span>
+              <Button onClick={saveRetrievalSettings} disabled={(alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95}>
+                {settingsSaved ? 'Saved!' : 'Save Weights'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

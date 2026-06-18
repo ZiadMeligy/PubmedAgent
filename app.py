@@ -8,7 +8,7 @@ import uuid
 import logging
 from typing import Union
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.schemas import (
@@ -24,6 +24,8 @@ from src.api.schemas import (
 )
 from src.services.chat_service import ChatService
 from src.services.conversation_manager import get_conversation_manager
+from src.auth.dependencies import get_current_user
+from src.api import auth_routes, settings_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +39,9 @@ app = FastAPI(
     title="Biomedical Literature Retrieval API",
     version="2.0.0",
 )
+
+app.include_router(auth_routes.router)
+app.include_router(settings_routes.router)
 
 # ─── CORS ────────────────────────────────────────────────────────
 
@@ -110,16 +115,19 @@ def health():
 # ─── Conversation Lifecycle ─────────────────────────────────────
 
 @app.post("/conversation/new", response_model=ConversationCreatedResponse)
-def create_conversation():
+def create_conversation(current_user: dict = Depends(get_current_user)):
     new_id = str(uuid.uuid4())
-    conversation_manager.create_conversation(new_id)
+    conversation_manager.create_conversation(new_id, user_id=current_user["id"])
     return ConversationCreatedResponse(conversation_id=new_id)
 
+@app.get("/conversations")
+def get_conversations(current_user: dict = Depends(get_current_user)):
+    return conversation_manager.repo.get_conversations(current_user["id"])
 
 @app.get("/conversation/{conversation_id}", response_model=ConversationInfoResponse)
-def get_conversation(conversation_id: str):
+def get_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
     conv = conversation_manager.repo.get_conversation(conversation_id)
-    if not conv:
+    if not conv or conv.get("user_id") != current_user["id"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     return ConversationInfoResponse(
@@ -132,9 +140,9 @@ def get_conversation(conversation_id: str):
 
 
 @app.delete("/conversation/{conversation_id}", response_model=ConversationDeletedResponse)
-def delete_conversation(conversation_id: str):
+def delete_conversation(conversation_id: str, current_user: dict = Depends(get_current_user)):
     conv = conversation_manager.repo.get_conversation(conversation_id)
-    if not conv:
+    if not conv or conv.get("user_id") != current_user["id"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # 1. Delete SQLite history
@@ -154,11 +162,17 @@ ChatResponseUnion = Union[PaperSearchResponse, QAResponse, ChatResponse, ErrorRe
 
 
 @app.post("/chat", response_model=ChatResponseUnion)
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     conv_id = request.conversation_id
     if not conv_id:
         conv_id = str(uuid.uuid4())
-        conversation_manager.create_conversation(conv_id)
+        conversation_manager.create_conversation(conv_id, user_id=current_user["id"])
+    else:
+        conv = conversation_manager.repo.get_conversation(conv_id)
+        if not conv:
+            conversation_manager.create_conversation(conv_id, user_id=current_user["id"])
+        elif conv.get("user_id") != current_user["id"]:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
-    result = chat_service.chat(conv_id, request.message)
+    result = chat_service.chat(conv_id, request.message, user_id=current_user["id"])
     return result

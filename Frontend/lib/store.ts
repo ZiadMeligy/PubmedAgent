@@ -109,3 +109,32 @@ export const useConversationStore = create<ConversationState>()(
     }
   )
 );
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  username: string;
+}
+
+export interface AuthState {
+  token: string | null;
+  user: UserProfile | null;
+  setToken: (token: string | null) => void;
+  setUser: (user: UserProfile | null) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      token: null,
+      user: null,
+      setToken: (token) => set({ token }),
+      setUser: (user) => set({ user }),
+      logout: () => set({ token: null, user: null }),
+    }),
+    {
+      name: 'auth-storage',
+    }
+  )
+);

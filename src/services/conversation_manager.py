@@ -11,15 +11,15 @@ class ConversationManager:
     def __init__(self):
         self.repo = get_conversation_repository()
         
-    def create_conversation(self, conversation_id: str) -> None:
+    def create_conversation(self, conversation_id: str, user_id: str = None) -> None:
         """Create a new conversation."""
-        self.repo.create_conversation(conversation_id)
+        self.repo.create_conversation(conversation_id, user_id)
             
-    def get_conversation(self, conversation_id: str) -> Dict[str, Any]:
+    def get_conversation(self, conversation_id: str, user_id: str = None) -> Dict[str, Any]:
         """Get an existing conversation."""
         conv = self.repo.get_conversation(conversation_id)
         if not conv:
-            self.create_conversation(conversation_id)
+            self.create_conversation(conversation_id, user_id)
             return self.repo.get_conversation(conversation_id)
         return conv
         

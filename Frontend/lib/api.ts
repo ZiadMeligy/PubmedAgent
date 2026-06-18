@@ -1,4 +1,5 @@
 import { ChatRequest, APIResponse } from '@/types';
+import { useAuthStore } from './store';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -18,13 +19,24 @@ export async function sendMessage(
     message,
   };
 
+  const token = useAuthStore.getState().token;
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(request),
   });
+
+  if (response.status === 401) {
+    useAuthStore.getState().logout();
+    throw new APIError('Unauthorized. Please log in again.');
+  }
 
   if (!response.ok) {
     throw new APIError(`Failed to send message: ${response.status} ${response.statusText}`);

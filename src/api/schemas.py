@@ -98,3 +98,30 @@ class HealthResponse(BaseModel):
     database: str
     qdrant: str
     llm: str
+
+# ─── Auth and Settings Models ────────────────────────────────────
+
+class SignupRequest(BaseModel):
+    email: str
+    username: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class AuthResponse(BaseModel):
+    user_id: str
+    token: str
+    refresh_token: str
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    username: str
+
+class SettingsSchema(BaseModel):
+    alpha: float
+    beta: float
+    gamma: float
+

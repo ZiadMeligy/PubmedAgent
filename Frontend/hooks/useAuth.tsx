@@ -1,12 +1,10 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { useAuthStore, UserProfile } from '@/lib/store';
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: UserProfile | null;
   loading: boolean;
   signOut: () => Promise<void>;
   isConfigured: boolean;
@@ -15,50 +13,45 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+  const logout = useAuthStore((s) => s.logout);
   const [loading, setLoading] = useState(true);
 
-  const isConfigured = supabase !== null;
+  const isConfigured = true;
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
-    const sb = supabase;
-
-    const getInitialSession = async () => {
-      const { data: { session } } = await sb.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+    const fetchUser = async () => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch(process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/auth/me` : 'http://localhost:8000/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data);
+        } else {
+          logout();
+        }
+      } catch (err) {
+        console.error('Failed to fetch user', err);
+      } finally {
+        setLoading(false);
+      }
     };
-
-    getInitialSession();
-
-    const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    fetchUser();
+  }, [token, setUser, logout]);
 
   const signOut = async () => {
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
-    setUser(null);
-    setSession(null);
+    logout();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signOut, isConfigured }}>
+    <AuthContext.Provider value={{ user, loading, signOut, isConfigured }}>
       {children}
     </AuthContext.Provider>
   );

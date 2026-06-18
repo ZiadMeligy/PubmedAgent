@@ -4,15 +4,18 @@ import { Sidebar } from '@/components/Sidebar';
 import { ChatWindow } from '@/components/ChatWindow';
 import { useConversation } from '@/hooks/useConversation';
 import { useChat } from '@/hooks/useChat';
-import { useConversationStore } from '@/lib/store';
+import { useConversationStore, useAuthStore } from '@/lib/store';
 import { Menu, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const token = useAuthStore((s) => s.token);
+  const router = useRouter();
 
   const {
     conversations,
@@ -25,6 +28,12 @@ export default function Home() {
 
   const { isLoading, loadingMessage } = useConversationStore();
   const { sendMessage, error, retry } = useChat(currentConversationId);
+
+  useEffect(() => {
+    if (!token) {
+      router.push('/login');
+    }
+  }, [token, router]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -59,8 +68,10 @@ export default function Home() {
     }
   };
 
+  if (!token) return null;
+
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background text-foreground">
       {/* Mobile overlay */}
       {isMobile && sidebarOpen && (
         <div
