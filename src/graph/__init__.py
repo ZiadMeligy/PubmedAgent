@@ -16,6 +16,7 @@ from src.retrieval.search import hierarchical_retrieve
 from src.formatting import format_ranked_papers
 from src.storage.paper_manager import get_paper_store
 from src.services.paper_store import get_conversation_paper_store
+from src.nlp.scispacy_extractor import extract_entities
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,19 @@ class AgentState(TypedDict):
 def model_call(state: AgentState):
     """Call the LLM to generate queries from clinical notes or analyze retrieved papers"""
     system_prompt = get_system_prompt()
+    messages = list(state["messages"])
     
-    messages = [system_prompt] + list(state["messages"])
-    response = invoke_llm(messages)
+    # Extract entities from the last human message to aid query generation
+    last_msg = messages[-1]
+    if isinstance(last_msg, HumanMessage):
+        entities = extract_entities(last_msg.content)
+        entities_str = json.dumps(entities, indent=2)
+        # Inject entities as context
+        context_msg = HumanMessage(content=f"[SYSTEM CONTEXT - EXTRACTED ENTITIES]\n{entities_str}\n[END CONTEXT]\n\nUser Message:\n{last_msg.content}")
+        messages[-1] = context_msg
+    
+    full_messages = [system_prompt] + messages
+    response = invoke_llm(full_messages)
     
     return {"messages": [response], "response_type": "chat"}
 
@@ -59,13 +70,27 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                 tool_name = tool_data.get("tool")
                 
                 if tool_name == "search_pubmed":
-                    query = tool_data.get("query")
+                    queries_dict = tool_data.get("queries", {})
                     
-                    # Execute hierarchical retrieval directly in tool node
+                    # Extract the original user prompt
+                    original_prompt = ""
+                    for msg in reversed(messages):
+                        if isinstance(msg, HumanMessage):
+                            content = msg.content
+                            if "[SYSTEM CONTEXT" in content and "User Message:\\n" in content:
+                                content = content.split("User Message:\\n")[-1]
+                            original_prompt = content
+                            break
+                    
+                    # Execute hierarchical retrieval with multi-query and original prompt
                     alpha = state.get("alpha", 0.8)
                     beta = state.get("beta", 0.1)
                     gamma = state.get("gamma", 0.1)
-                    ranked_papers = hierarchical_retrieve(query, alpha=alpha, beta=beta, gamma=gamma)
+                    ranked_papers = hierarchical_retrieve(
+                        original_prompt=original_prompt, 
+                        queries=queries_dict, 
+                        alpha=alpha, beta=beta, gamma=gamma
+                    )
                     
                     # Store papers in the conversational paper store
                     if ranked_papers:
@@ -78,7 +103,9 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                         logger.info(f"Added {chunks_added} abstract chunks to vector store for conversation {conversation_id}")
                     
                     # Format the refined results with all metrics
-                    formatted_results = format_ranked_papers(query, ranked_papers)
+                    # Pass a representative query string to formatter
+                    repr_query = " | ".join(queries_dict.values()) if isinstance(queries_dict, dict) else str(queries_dict)
+                    formatted_results = format_ranked_papers(repr_query, ranked_papers)
                     
                     # Return the formatted results directly as an AI message
                     result_message = AIMessage(content=f"=== PUBMED SEARCH COMPLETE ===\n\n{formatted_results}")
