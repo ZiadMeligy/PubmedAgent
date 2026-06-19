@@ -231,26 +231,92 @@ export default function SettingsPage() {
               <Sliders className="h-5 w-5" />
               Retrieval Preferences
             </CardTitle>
-            <CardDescription>Adjust the weights for hierarchical retrieval. Must sum to 1.0.</CardDescription>
+            <CardDescription>Adjust the weights for hierarchical retrieval. The total sum is exactly 1.0.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Semantic Similarity (Alpha: {alpha.toFixed(2)})</Label>
-              <input type="range" min="0" max="1" step="0.05" value={alpha} onChange={e => setAlpha(parseFloat(e.target.value))} className="w-full mt-2" />
+          <CardContent className="space-y-6">
+            
+            {/* Total Remaining Meter */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">Total Allocation</span>
+                <span className={((alpha + beta + gamma) < 0.99) ? 'text-primary font-bold' : 'text-muted-foreground'}>
+                  {((alpha + beta + gamma) * 100).toFixed(0)}% Used
+                </span>
+              </div>
+              <div className="h-2 w-full bg-muted rounded-full overflow-hidden flex">
+                <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${alpha * 100}%` }} title="Semantic" />
+                <div className="h-full bg-green-500 transition-all duration-300" style={{ width: `${beta * 100}%` }} title="Recency" />
+                <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${gamma * 100}%` }} title="Citations" />
+              </div>
+              {((alpha + beta + gamma) < 0.99) && (
+                <p className="text-xs text-primary text-right animate-pulse">
+                  {(1.0 - (alpha + beta + gamma)).toFixed(2)} remaining to unlock
+                </p>
+              )}
             </div>
-            <div>
-              <Label>Recency (Beta: {beta.toFixed(2)})</Label>
-              <input type="range" min="0" max="1" step="0.05" value={beta} onChange={e => setBeta(parseFloat(e.target.value))} className="w-full mt-2" />
+
+            <div className="space-y-4">
+              <div>
+                <Label className="flex justify-between">
+                  <span>Semantic Similarity (Alpha)</span>
+                  <span className="text-blue-500 font-mono">{alpha.toFixed(2)}</span>
+                </Label>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05" 
+                  value={alpha} 
+                  onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    const maxAllowed = 1.0 - beta - gamma;
+                    setAlpha(Math.min(val, maxAllowed));
+                  }} 
+                  className="w-full mt-2 accent-blue-500" 
+                />
+              </div>
+              <div>
+                <Label className="flex justify-between">
+                  <span>Recency (Beta)</span>
+                  <span className="text-green-500 font-mono">{beta.toFixed(2)}</span>
+                </Label>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05" 
+                  value={beta} 
+                  onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    const maxAllowed = 1.0 - alpha - gamma;
+                    setBeta(Math.min(val, maxAllowed));
+                  }} 
+                  className="w-full mt-2 accent-green-500" 
+                />
+              </div>
+              <div>
+                <Label className="flex justify-between">
+                  <span>Citation Impact (Gamma)</span>
+                  <span className="text-purple-500 font-mono">{gamma.toFixed(2)}</span>
+                </Label>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05" 
+                  value={gamma} 
+                  onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    const maxAllowed = 1.0 - alpha - beta;
+                    setGamma(Math.min(val, maxAllowed));
+                  }} 
+                  className="w-full mt-2 accent-purple-500" 
+                />
+              </div>
             </div>
-            <div>
-              <Label>Citation Impact (Gamma: {gamma.toFixed(2)})</Label>
-              <input type="range" min="0" max="1" step="0.05" value={gamma} onChange={e => setGamma(parseFloat(e.target.value))} className="w-full mt-2" />
-            </div>
-            <div className="flex justify-between items-center mt-4">
-              <span className={`text-sm ${(alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95 ? 'text-red-500' : 'text-green-500'}`}>
-                Sum: {(alpha + beta + gamma).toFixed(2)} {((alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95) && '(Must be ~1.00)'}
-              </span>
-              <Button onClick={saveRetrievalSettings} disabled={(alpha + beta + gamma) > 1.05 || (alpha + beta + gamma) < 0.95}>
+
+            <div className="flex justify-end pt-2">
+              <Button onClick={saveRetrievalSettings} disabled={(alpha + beta + gamma) < 0.99}>
                 {settingsSaved ? 'Saved!' : 'Save Weights'}
               </Button>
             </div>

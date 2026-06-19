@@ -34,7 +34,38 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         ) : (
           <div className="space-y-3">
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ node, ...props }) => {
+                    const childrenText = String(props.children);
+                    // Check if it's a citation like "1" (from [1](url)) or "[1]"
+                    if (/^\[?\d+\]?$/.test(childrenText)) {
+                      const num = childrenText.replace('[', '').replace(']', '');
+                      return (
+                        <a 
+                          {...props} 
+                          className="inline-flex items-center justify-center w-4 h-4 ml-1 text-[10px] font-bold text-white bg-primary rounded-[4px] no-underline hover:opacity-70 transition-opacity align-super"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={props.href}
+                        >
+                          {num}
+                        </a>
+                      );
+                    }
+                    // Default link styling
+                    return (
+                      <a 
+                        {...props} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-primary hover:underline font-medium" 
+                      />
+                    );
+                  }
+                }}
+              >
                 {message.content}
               </ReactMarkdown>
             </div>

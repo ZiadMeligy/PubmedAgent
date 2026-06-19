@@ -43,13 +43,13 @@ export function ChatWindow({
       { rootMargin: '-10% 0px -50% 0px', threshold: 0.1 }
     );
 
-    const elements = document.querySelectorAll('.ai-message');
+    const elements = document.querySelectorAll('.assistant-message');
     elements.forEach((el) => observer.observe(el));
 
     return () => observer.disconnect();
   }, [messages]);
 
-  const aiMessages = messages.filter(m => m.type === 'ai');
+  const aiMessages = messages.filter(m => m.type === 'assistant');
 
   const scrollToMessage = (id: string) => {
     const el = document.getElementById(id);
@@ -105,7 +105,7 @@ export function ChatWindow({
           <div className="flex-1 relative">
             <div className="max-w-[900px] mx-auto w-full px-8 py-4 space-y-1">
               {messages.map((message) => (
-                <div key={message.id} id={`msg-${message.id}`} className={message.type === 'ai' ? 'ai-message' : ''}>
+                <div key={message.id} id={`msg-${message.id}`} className={message.type === 'assistant' ? 'assistant-message' : ''}>
                   <MessageBubble message={message} />
                 </div>
               ))}

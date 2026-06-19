@@ -74,8 +74,9 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
             'score': chunk.get('rerank_score', 0)
         })
         
-    for pmid, paper in papers.items():
-        context += f"PAPER TITLE:\n{paper['title']}\n\n"
+    for idx, (pmid, paper) in enumerate(papers.items(), 1):
+        context += f"PAPER [{idx}]:\n"
+        context += f"TITLE:\n{paper['title']}\n\n"
         context += f"PMID:\n{pmid}\n\n"
         context += f"YEAR:\n{paper['year']}\n\n"
         context += f"JOURNAL:\n{paper['journal']}\n\n"
