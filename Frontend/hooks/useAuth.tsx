@@ -18,11 +18,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setUser = useAuthStore((s) => s.setUser);
   const logout = useAuthStore((s) => s.logout);
   const [loading, setLoading] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const isConfigured = true;
 
   useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
     const fetchUser = async () => {
+      if (!isHydrated) return; // Wait for hydration
+      
       if (!token) {
         setLoading(false);
         return;
@@ -44,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
     fetchUser();
-  }, [token, setUser, logout]);
+  }, [isHydrated, token, setUser, logout]);
 
   const signOut = async () => {
     logout();

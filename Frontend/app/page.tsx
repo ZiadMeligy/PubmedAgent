@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const token = useAuthStore((s) => s.token);
   const router = useRouter();
 
@@ -30,10 +31,14 @@ export default function Home() {
   const { sendMessage, error, retry } = useChat(currentConversationId);
 
   useEffect(() => {
-    if (!token) {
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (isHydrated && !token) {
       router.push('/login');
     }
-  }, [token, router]);
+  }, [isHydrated, token, router]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -48,11 +53,7 @@ export default function Home() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  useEffect(() => {
-    if (conversations.length === 0) {
-      createConversation();
-    }
-  }, [conversations.length, createConversation]);
+  // Removed automatic conversation creation to prevent duplicates
 
   const handleNewConversation = () => {
     createConversation();
@@ -68,7 +69,7 @@ export default function Home() {
     }
   };
 
-  if (!token) return null;
+  if (!isHydrated || !token) return null;
 
   return (
     <div className="flex h-screen bg-background text-foreground">

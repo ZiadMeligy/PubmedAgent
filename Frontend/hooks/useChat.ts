@@ -21,7 +21,13 @@ export function useChat(conversationId: string | null) {
   const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim() || isLoading) return;
 
-    const currentConversationId = conversationId || backendConversationId;
+    let currentConversationId = conversationId || backendConversationId;
+    
+    // Lazy initialization: if there's no conversation yet, create one now!
+    if (!currentConversationId) {
+      currentConversationId = useConversationStore.getState().createConversation();
+    }
+
     setError(null);
 
     const userMessage: Message = {
@@ -31,8 +37,8 @@ export function useChat(conversationId: string | null) {
       timestamp: new Date(),
     };
 
-    if (conversationId) {
-      addMessage(conversationId, userMessage);
+    if (currentConversationId) {
+      addMessage(currentConversationId, userMessage);
     }
 
     setLoading(true, 'Sending message...');
@@ -81,8 +87,8 @@ export function useChat(conversationId: string | null) {
         references,
       };
 
-      if (conversationId) {
-        addMessage(conversationId, assistantMessage);
+      if (currentConversationId) {
+        addMessage(currentConversationId, assistantMessage);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unable to contact backend.';
