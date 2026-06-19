@@ -17,6 +17,7 @@ from src.formatting import format_ranked_papers
 from src.storage.paper_manager import get_paper_store
 from src.services.paper_store import get_conversation_paper_store
 from src.nlp.scispacy_extractor import extract_entities
+from src.nlp.entity_ranking import rank_entity_importance
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,11 @@ def model_call(state: AgentState):
     # Extract entities from the last human message to aid query generation
     last_msg = messages[-1]
     if isinstance(last_msg, HumanMessage):
-        entities = extract_entities(last_msg.content)
-        entities_str = json.dumps(entities, indent=2)
+        raw_entities = extract_entities(last_msg.content).get("Biomedical Entities", [])
+        ranked_entities = rank_entity_importance(raw_entities)
+        entities_str = json.dumps(ranked_entities, indent=2)
         # Inject entities as context
-        context_msg = HumanMessage(content=f"[SYSTEM CONTEXT - EXTRACTED ENTITIES]\n{entities_str}\n[END CONTEXT]\n\nUser Message:\n{last_msg.content}")
+        context_msg = HumanMessage(content=f"[SYSTEM CONTEXT - EXTRACTED & RANKED ENTITIES]\n{entities_str}\n[END CONTEXT]\n\nUser Message:\n{last_msg.content}")
         messages[-1] = context_msg
     
     full_messages = [system_prompt] + messages

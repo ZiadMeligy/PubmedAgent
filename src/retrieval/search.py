@@ -27,18 +27,19 @@ logger = logging.getLogger(__name__)
 # RETRIEVAL FUNCTIONS
 # -------------------------
 
-def search_pubmed(query: str) -> List[Dict]:
+def search_pubmed(query: str, max_results: int = PUBMED_MAX_RESULTS) -> List[Dict]:
     """
     Search PubMed for medical research papers.
     
     Args:
         query: Search query string
+        max_results: Number of papers to fetch
     
     Returns:
         List of paper dictionaries with metadata
     """
     pubmed = PubMed(tool="pubmed", email="your_email@example.com")
-    results = list(pubmed.query(query, max_results=PUBMED_MAX_RESULTS))
+    results = list(pubmed.query(query, max_results=max_results))
     logger.info(f"Retrieved {len(results)} papers from PubMed for query: '{query}'")
     papers = []
 
@@ -135,6 +136,13 @@ def rank_abstracts(
     """
     query_embedding = get_embeddings([original_prompt], use_instruction=True)[0]
     
+    # Pre-fetch citation counts to find the maximum in the pool
+    for paper in papers:
+        paper["citation_count"] = get_citations_for_pmid(paper["pubmed_id"])
+        
+    # Calculate dynamic max citations for normalization
+    max_citations = max([p["citation_count"] for p in papers if p["citation_count"] is not None] + [0])
+    
     # Process each paper
     for paper in papers:
         # --- ABSTRACT CHUNKING AND SIMILARITY ---
@@ -156,9 +164,8 @@ def rank_abstracts(
         paper["recency_score"] = recency_score
         
         # --- CITATION COUNT AND CITATION SCORE ---
-        citation_count = get_citations_for_pmid(paper["pubmed_id"])
-        paper["citation_count"] = citation_count
-        citation_score = compute_citation_score(citation_count)
+        citation_count = paper["citation_count"]
+        citation_score = compute_citation_score(citation_count, max_citations=max_citations)
         paper["citation_score"] = citation_score
         
         # --- WEIGHTED COMPOSITE SCORE ---
@@ -214,9 +221,11 @@ def hierarchical_retrieve(
     print("PubMed Results")
     
     all_papers = []
-    # 1. Multi-query retrieval
+    # 1. Multi-query retrieval with explicit quotas
+    # If we have 5 queries, we fetch ~20 papers each to get ~100 total
+    papers_per_query = 20
     for query_type, q_string in queries.items():
-        papers = search_pubmed(q_string)
+        papers = search_pubmed(q_string, max_results=papers_per_query)
         print(f"{query_type.capitalize()}:\\n{len(papers)} papers")
         all_papers.extend(papers)
         

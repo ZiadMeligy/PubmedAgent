@@ -37,12 +37,14 @@ def compute_recency_score(publication_year: int) -> float:
     return float(recency)
 
 
-def compute_citation_score(citation_count: int) -> float:
+def compute_citation_score(citation_count: int, max_citations: int = MAX_CITATIONS_REFERENCE) -> float:
     """
     Compute citation score normalized to [0, 1] using log scaling.
     
     Args:
         citation_count: Number of citations
+        max_citations: Maximum number of citations in the current candidate pool
+
     
     Returns:
         Citation score in range [0, 1]
@@ -54,9 +56,10 @@ def compute_citation_score(citation_count: int) -> float:
     # Using log1p for better numerical stability
     log_citations = np.log1p(citation_count)
     
-    # Normalize by assuming max reasonable citations (e.g., 10000)
-    # This puts highly cited papers (>10000 citations) near 1.0
-    max_log = np.log1p(MAX_CITATIONS_REFERENCE)
+    # Normalize by assuming max citations from the pool
+    # This puts highly cited papers (relative to the pool) near 1.0
+    # Add 1 to avoid division by zero if max_citations is 0
+    max_log = np.log1p(max(max_citations, 1))
     citation_score = min(1.0, log_citations / max_log)
     
     return float(citation_score)
