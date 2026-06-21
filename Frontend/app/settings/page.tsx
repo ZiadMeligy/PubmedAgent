@@ -14,7 +14,7 @@ import { useAuthStore } from '@/lib/store';
 
 export default function SettingsPage() {
   const { user, loading, signOut, isConfigured } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [notifications, setNotifications] = useState(true);
   const [dataSharing, setDataSharing] = useState(false);
   
@@ -23,6 +23,11 @@ export default function SettingsPage() {
   const [beta, setBeta] = useState(0.1);
   const [gamma, setGamma] = useState(0.1);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -128,7 +133,7 @@ export default function SettingsPage() {
             <CardContent>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+                  {(!mounted || resolvedTheme === 'dark') ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
                   <div>
                     <Label htmlFor="theme-toggle">Dark Mode</Label>
                     <p className="text-sm text-muted-foreground">
@@ -136,11 +141,13 @@ export default function SettingsPage() {
                     </p>
                   </div>
                 </div>
-                <Switch
-                  id="theme-toggle"
-                  checked={theme === 'dark'}
-                  onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-                />
+                {mounted && (
+                  <Switch
+                    id="theme-toggle"
+                    checked={resolvedTheme === 'dark'}
+                    onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                  />
+                )}
               </div>
             </CardContent>
           </Card>
@@ -332,19 +339,21 @@ export default function SettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {theme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+                {(!mounted || resolvedTheme === 'dark') ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
                 <div>
-                  <Label htmlFor="theme-toggle">Dark Mode</Label>
+                  <Label htmlFor="theme-toggle-auth">Dark Mode</Label>
                   <p className="text-sm text-muted-foreground">
                     Toggle between light and dark themes
                   </p>
                 </div>
               </div>
-              <Switch
-                id="theme-toggle"
-                checked={theme === 'dark'}
-                onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-              />
+              {mounted && (
+                <Switch
+                  id="theme-toggle-auth"
+                  checked={resolvedTheme === 'dark'}
+                  onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                />
+              )}
             </div>
           </CardContent>
         </Card>

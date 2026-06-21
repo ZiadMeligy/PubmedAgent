@@ -108,6 +108,7 @@ def rank_titles(original_prompt: str, papers: List[Dict]) -> List[Dict]:
     
     # Sort by title similarity and keep top N
     ranked_papers = sorted(papers, key=lambda x: x["title_similarity"], reverse=True)[:PUBMED_TITLE_TOP_K]
+
     
     return ranked_papers
 
