@@ -58,6 +58,7 @@ export function useChat(conversationId: string | null) {
       let assistantContent = '';
       let papers = undefined;
       let references = undefined;
+      let retrievalConfig = undefined;
 
       switch (response.type) {
         case 'paper_search':
@@ -65,6 +66,7 @@ export function useChat(conversationId: string | null) {
             ? `Found ${response.papers.length} relevant papers:`
             : 'No papers found matching your query.';
           papers = response.papers;
+          retrievalConfig = response.retrieval_config;
           setLoading(true, 'Ranking Papers...');
           break;
         case 'qa':
@@ -85,6 +87,7 @@ export function useChat(conversationId: string | null) {
         responseType: response.type,
         papers,
         references,
+        retrievalConfig,
       };
 
       if (currentConversationId) {

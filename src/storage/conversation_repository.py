@@ -71,6 +71,12 @@ class ConversationRepository:
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
                 )
             ''')
+            
+            try:
+                conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
+            except sqlite3.OperationalError:
+                pass
+                
             conn.commit()
 
     def create_conversation(self, conversation_id: str, user_id: Optional[str] = None) -> None:
@@ -105,16 +111,23 @@ class ConversationRepository:
                 return None
             
             # Fetch messages
-            msg_rows = conn.execute("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,)).fetchall()
+            msg_rows = conn.execute("SELECT role, content, metadata FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (conversation_id,)).fetchall()
             
             messages = []
             for m in msg_rows:
+                metadata = {}
+                if 'metadata' in m.keys() and m['metadata']:
+                    try:
+                        metadata = json.loads(m['metadata'])
+                    except Exception:
+                        pass
+                        
                 if m['role'] == 'human':
-                    messages.append(HumanMessage(content=m['content']))
+                    messages.append(HumanMessage(content=m['content'], additional_kwargs=metadata))
                 elif m['role'] == 'ai':
-                    messages.append(AIMessage(content=m['content']))
+                    messages.append(AIMessage(content=m['content'], additional_kwargs=metadata))
                 elif m['role'] == 'system':
-                    messages.append(SystemMessage(content=m['content']))
+                    messages.append(SystemMessage(content=m['content'], additional_kwargs=metadata))
                     
             return {
                 "id": row['id'],
@@ -139,11 +152,12 @@ class ConversationRepository:
             role = "system"
             
         content = message.content if isinstance(message.content, str) else str(message.content)
+        metadata_str = json.dumps(message.additional_kwargs) if hasattr(message, 'additional_kwargs') and message.additional_kwargs else "{}"
             
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                (conversation_id, role, content, now)
+                "INSERT INTO messages (conversation_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                (conversation_id, role, content, metadata_str, now)
             )
             conn.execute(
                 "UPDATE conversations SET updated_at = ? WHERE id = ?",

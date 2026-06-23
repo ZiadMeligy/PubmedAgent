@@ -33,6 +33,7 @@ class AgentState(TypedDict):
     alpha: float
     beta: float
     gamma: float
+    retrieval_config: dict
 
 
 def model_call(state: AgentState):
@@ -88,6 +89,13 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     alpha = state.get("alpha", 0.8)
                     beta = state.get("beta", 0.1)
                     gamma = state.get("gamma", 0.1)
+                    
+                    retrieval_config = {
+                        "similarity": alpha,
+                        "recency": beta,
+                        "citation": gamma
+                    }
+                    
                     ranked_papers = hierarchical_retrieve(
                         original_prompt=original_prompt, 
                         queries=queries_dict, 
@@ -110,14 +118,18 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     formatted_results = format_ranked_papers(repr_query, ranked_papers)
                     
                     # Return the formatted results directly as an AI message
-                    result_message = AIMessage(content=f"=== PUBMED SEARCH COMPLETE ===\n\n{formatted_results}")
+                    result_message = AIMessage(
+                        content=f"=== PUBMED SEARCH COMPLETE ===\n\n{formatted_results}",
+                        additional_kwargs={"retrieval_config": retrieval_config}
+                    )
                     
                     # Add the tool result as a message and mark papers as found
                     return {
                         "messages": [result_message],
                         "papers_found": bool(ranked_papers),
                         "response_type": "paper_search",
-                        "latest_papers": ranked_papers
+                        "latest_papers": ranked_papers,
+                        "retrieval_config": retrieval_config
                     }
             except json.JSONDecodeError:
                 logger.error("Failed to parse tool call JSON")

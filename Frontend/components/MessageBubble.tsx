@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PaperCard } from './PaperCard';
 import { ReferencesPanel } from './ReferencesPanel';
+import { RetrievalConfigCard } from './RetrievalConfigCard';
 
 interface MessageBubbleProps {
   message: Message;
@@ -33,6 +34,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         ) : (
           <div className="space-y-3">
+            {message.retrievalConfig && (
+              <RetrievalConfigCard 
+                params={[
+                  { key: 'similarity', label: 'Semantic Similarity', value: message.retrievalConfig.similarity, colorClass: 'bg-blue-500' },
+                  { key: 'recency', label: 'Recency', value: message.retrievalConfig.recency, colorClass: 'bg-green-500' },
+                  { key: 'citation', label: 'Citation Count', value: message.retrievalConfig.citation, colorClass: 'bg-amber-500' }
+                ]}
+              />
+            )}
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}

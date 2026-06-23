@@ -27,6 +27,12 @@ class PaperResult(BaseModel):
     composite_score: Optional[float] = None
 
 
+class RetrievalConfig(BaseModel):
+    similarity: float
+    recency: float
+    citation: float
+
+
 class ReferenceResult(BaseModel):
     title: str
     pmid: str
@@ -44,6 +50,7 @@ class PaperSearchResponse(BaseModel):
     response: str
     papers_found: bool
     papers: List[PaperResult]
+    retrieval_config: Optional[RetrievalConfig] = None
 
     model_config = {"populate_by_name": True}
 

@@ -1,4 +1,5 @@
 import { Paper, Reference } from './paper';
+import { RetrievalConfig } from './api';
 
 export type MessageType = 'user' | 'assistant';
 
@@ -12,6 +13,7 @@ export interface Message {
   responseType?: ResponseType;
   papers?: Paper[];
   references?: Reference[];
+  retrievalConfig?: RetrievalConfig;
 }
 
 export interface Conversation {

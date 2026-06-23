@@ -123,6 +123,7 @@ class ChatService:
             response=text_response,
             papers_found=result["papers_found"],
             papers=papers,
+            retrieval_config=result.get("retrieval_config"),
         )
 
     def _build_qa_response(

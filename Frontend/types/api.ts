@@ -5,11 +5,18 @@ export interface ChatRequest {
   message: string;
 }
 
+export interface RetrievalConfig {
+  similarity: number;
+  recency: number;
+  citation: number;
+}
+
 export interface PaperSearchResponse {
   type: 'paper_search';
   conversation_id: string;
   papers_found: boolean;
   papers: Paper[];
+  retrieval_config?: RetrievalConfig;
 }
 
 export interface QAResponse {
