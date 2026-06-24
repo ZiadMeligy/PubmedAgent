@@ -41,6 +41,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   { key: 'recency', label: 'Recency', value: message.retrievalConfig.recency, colorClass: 'bg-green-500' },
                   { key: 'citation', label: 'Citation Count', value: message.retrievalConfig.citation, colorClass: 'bg-amber-500' }
                 ]}
+                journalQualityEnabled={message.retrievalConfig.journal_quality_enabled}
+                minimumSjr={message.retrievalConfig.minimum_sjr}
               />
             )}
             <div className="prose prose-sm dark:prose-invert max-w-none">

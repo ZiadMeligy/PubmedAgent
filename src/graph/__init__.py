@@ -33,6 +33,8 @@ class AgentState(TypedDict):
     alpha: float
     beta: float
     gamma: float
+    journal_quality_enabled: bool
+    minimum_sjr: float
     retrieval_config: dict
 
 
@@ -89,19 +91,26 @@ def execute_tools_if_needed(state: AgentState) -> dict:
                     alpha = state.get("alpha", 0.8)
                     beta = state.get("beta", 0.1)
                     gamma = state.get("gamma", 0.1)
+                    journal_quality_enabled = state.get("journal_quality_enabled", False)
+                    minimum_sjr = state.get("minimum_sjr", 10.0)
                     
                     retrieval_config = {
                         "similarity": alpha,
                         "recency": beta,
-                        "citation": gamma
+                        "citation": gamma,
+                        "journal_quality_enabled": journal_quality_enabled,
+                        "minimum_sjr": minimum_sjr
                     }
                     
                     ranked_papers = hierarchical_retrieve(
                         original_prompt=original_prompt, 
                         queries=queries_dict, 
-                        alpha=alpha, beta=beta, gamma=gamma
+                        alpha=alpha,
+                        beta=beta,
+                        gamma=gamma,
+                        journal_quality_enabled=journal_quality_enabled,
+                        minimum_sjr=minimum_sjr
                     )
-                    
                     # Store papers in the conversational paper store
                     if ranked_papers:
                         paper_store_manager = get_conversation_paper_store()

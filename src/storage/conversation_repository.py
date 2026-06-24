@@ -36,9 +36,21 @@ class ConversationRepository:
                     alpha REAL DEFAULT 0.80,
                     beta REAL DEFAULT 0.10,
                     gamma REAL DEFAULT 0.10,
+                    journal_quality_enabled BOOLEAN DEFAULT 0,
+                    minimum_sjr REAL DEFAULT 10.0,
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )
             ''')
+            
+            try:
+                conn.execute("ALTER TABLE user_preferences ADD COLUMN journal_quality_enabled BOOLEAN DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+                
+            try:
+                conn.execute("ALTER TABLE user_preferences ADD COLUMN minimum_sjr REAL DEFAULT 10.0")
+            except sqlite3.OperationalError:
+                pass
             
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS conversations (
@@ -191,7 +203,7 @@ class ConversationRepository:
                 (user_id, email, username, password_hash, now)
             )
             conn.execute(
-                "INSERT INTO user_preferences (user_id, alpha, beta, gamma) VALUES (?, 0.80, 0.10, 0.10)",
+                "INSERT INTO user_preferences (user_id, alpha, beta, gamma, journal_quality_enabled, minimum_sjr) VALUES (?, 0.80, 0.10, 0.10, 0, 10.0)",
                 (user_id,)
             )
             conn.commit()
@@ -215,19 +227,21 @@ class ConversationRepository:
             return dict(row) if row else None
 
     # --- Preferences Management ---
-    def get_preferences(self, user_id: str) -> Dict[str, float]:
+    def get_preferences(self, user_id: str) -> Dict[str, Any]:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            row = conn.execute("SELECT alpha, beta, gamma FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
+            row = conn.execute("SELECT alpha, beta, gamma, journal_quality_enabled, minimum_sjr FROM user_preferences WHERE user_id = ?", (user_id,)).fetchone()
             if row:
-                return dict(row)
-            return {"alpha": 0.80, "beta": 0.10, "gamma": 0.10}
+                d = dict(row)
+                d['journal_quality_enabled'] = bool(d.get('journal_quality_enabled', False))
+                return d
+            return {"alpha": 0.80, "beta": 0.10, "gamma": 0.10, "journal_quality_enabled": False, "minimum_sjr": 10.0}
 
-    def update_preferences(self, user_id: str, alpha: float, beta: float, gamma: float) -> None:
+    def update_preferences(self, user_id: str, alpha: float, beta: float, gamma: float, journal_quality_enabled: bool = False, minimum_sjr: float = 10.0) -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE user_preferences SET alpha = ?, beta = ?, gamma = ? WHERE user_id = ?",
-                (alpha, beta, gamma, user_id)
+                "UPDATE user_preferences SET alpha = ?, beta = ?, gamma = ?, journal_quality_enabled = ?, minimum_sjr = ? WHERE user_id = ?",
+                (alpha, beta, gamma, int(journal_quality_enabled), minimum_sjr, user_id)
             )
             conn.commit()
 

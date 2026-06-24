@@ -3,6 +3,9 @@ PubMed search and hierarchical ranking functionality.
 """
 
 import logging
+import json
+import os
+import re
 
 from typing import List, Dict
 import numpy as np
@@ -21,6 +24,22 @@ from src.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Load Journal SJR lookup at module level
+_JOURNAL_SJR_LOOKUP = {}
+try:
+    sjr_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "journal_sjr.json")
+    with open(sjr_path, "r", encoding="utf-8") as f:
+        _JOURNAL_SJR_LOOKUP = json.load(f)
+except Exception as e:
+    logger.warning(f"Could not load journal SJR lookup: {e}")
+
+def normalize_journal_name(name: str) -> str:
+    if not name:
+        return ""
+    name = name.lower()
+    name = re.sub(r'[^\w\s]', '', name)
+    return re.sub(r'\s+', ' ', name).strip()
 
 
 # -------------------------
@@ -68,6 +87,8 @@ def search_pubmed(query: str, max_results: int = PUBMED_MAX_RESULTS) -> List[Dic
         journal = "Unknown"
         if hasattr(article, 'journal') and article.journal:
             journal = article.journal
+            
+        issn = getattr(article, 'issn', None)
         
         papers.append({
             "title": title,
@@ -77,6 +98,7 @@ def search_pubmed(query: str, max_results: int = PUBMED_MAX_RESULTS) -> List[Dic
             "publication_year": publication_year,
             "citation_count": None,  # Will be filled later
             "journal": journal,
+            "issn": issn,
         })
 
     return papers
@@ -196,7 +218,9 @@ def hierarchical_retrieve(
     queries: Dict[str, str],
     alpha: float = SCORE_ALPHA,
     beta: float = SCORE_BETA,
-    gamma: float = SCORE_GAMMA
+    gamma: float = SCORE_GAMMA,
+    journal_quality_enabled: bool = False,
+    minimum_sjr: float = 10.0
 ) -> List[Dict]:
     """
     Execute hierarchical retrieval: multi-query fetch -> deduplicate -> title filtering -> abstract ranking.
@@ -241,6 +265,28 @@ def hierarchical_retrieve(
             dedup_papers.append(p)
             
     print(f"\\nDeduplicated:\\n{len(dedup_papers)}")
+    
+    if journal_quality_enabled:
+        filtered_papers = []
+        for p in dedup_papers:
+            issn = p.get("issn")
+            journal_name = p.get("journal", "")
+            norm_journal = normalize_journal_name(journal_name)
+            
+            sjr_entry = None
+            if issn and issn in _JOURNAL_SJR_LOOKUP:
+                sjr_entry = _JOURNAL_SJR_LOOKUP[issn]
+            elif norm_journal and norm_journal in _JOURNAL_SJR_LOOKUP:
+                sjr_entry = _JOURNAL_SJR_LOOKUP[norm_journal]
+                
+            if sjr_entry and sjr_entry["sjr"] >= minimum_sjr:
+                p["sjr"] = sjr_entry["sjr"]
+                p["quartile"] = sjr_entry["quartile"]
+                filtered_papers.append(p)
+                
+        print(f"Journal Quality Filter (>= {minimum_sjr}):\\nPassed: {len(filtered_papers)} / {len(dedup_papers)}")
+        dedup_papers = filtered_papers
+
     print("---")
     
     if not dedup_papers:

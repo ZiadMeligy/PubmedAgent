@@ -31,6 +31,8 @@ class RetrievalConfig(BaseModel):
     similarity: float
     recency: float
     citation: float
+    journal_quality_enabled: Optional[bool] = None
+    minimum_sjr: Optional[float] = None
 
 
 class ReferenceResult(BaseModel):
@@ -131,4 +133,6 @@ class SettingsSchema(BaseModel):
     alpha: float
     beta: float
     gamma: float
+    journal_quality_enabled: bool = False
+    minimum_sjr: float = 10.0
 

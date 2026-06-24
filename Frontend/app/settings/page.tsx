@@ -22,6 +22,8 @@ export default function SettingsPage() {
   const [alpha, setAlpha] = useState(0.8);
   const [beta, setBeta] = useState(0.1);
   const [gamma, setGamma] = useState(0.1);
+  const [journalQualityEnabled, setJournalQualityEnabled] = useState(false);
+  const [minimumSjr, setMinimumSjr] = useState(10.0);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -40,6 +42,10 @@ export default function SettingsPage() {
           setAlpha(d.alpha);
           setBeta(d.beta);
           setGamma(d.gamma);
+          if (d.journal_quality_enabled !== undefined) {
+            setJournalQualityEnabled(d.journal_quality_enabled);
+            setMinimumSjr(d.minimum_sjr);
+          }
         }
       });
     }
@@ -54,7 +60,11 @@ export default function SettingsPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ alpha, beta, gamma })
+        body: JSON.stringify({ 
+          alpha, beta, gamma,
+          journal_quality_enabled: journalQualityEnabled,
+          minimum_sjr: minimumSjr
+        })
       });
       if (res.ok) {
         setSettingsSaved(true);
@@ -325,6 +335,93 @@ export default function SettingsPage() {
             <div className="flex justify-end pt-2">
               <Button onClick={saveRetrievalSettings} disabled={(alpha + beta + gamma) < 0.99}>
                 {settingsSaved ? 'Saved!' : 'Save Weights'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Journal Quality Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Journal Quality
+            </CardTitle>
+            <CardDescription>Filter papers based on SCImago Journal Rank (SJR)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="journal-quality-toggle">Journal Quality Mode</Label>
+                <p className="text-sm text-muted-foreground">
+                  When enabled, excludes papers from journals below a minimum SJR score.
+                </p>
+              </div>
+              <Switch
+                id="journal-quality-toggle"
+                checked={journalQualityEnabled}
+                onCheckedChange={setJournalQualityEnabled}
+              />
+            </div>
+            
+            {journalQualityEnabled && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <Label>Minimum SJR</Label>
+                  <select 
+                    className="w-full sm:w-auto p-2 rounded-md border border-input bg-background ml-2"
+                    value={
+                      [15, 10, 7, 5, 3, 2, 1].includes(minimumSjr) ? minimumSjr : "custom"
+                    }
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val !== "custom") {
+                        setMinimumSjr(parseFloat(val));
+                      } else {
+                        if ([15, 10, 7, 5, 3, 2, 1].includes(minimumSjr)) {
+                           setMinimumSjr(0);
+                        }
+                      }
+                    }}
+                  >
+                    <option value="15">SJR ≥ 15</option>
+                    <option value="10">SJR ≥ 10</option>
+                    <option value="7">SJR ≥ 7</option>
+                    <option value="5">SJR ≥ 5</option>
+                    <option value="3">SJR ≥ 3</option>
+                    <option value="2">SJR ≥ 2</option>
+                    <option value="1">SJR ≥ 1</option>
+                    <option value="custom">Custom...</option>
+                  </select>
+                  
+                  {(![15, 10, 7, 5, 3, 2, 1].includes(minimumSjr)) && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Label>Custom Minimum SJR:</Label>
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        className="p-1 border rounded"
+                        value={minimumSjr} 
+                        onChange={(e) => setMinimumSjr(parseFloat(e.target.value) || 0)}
+                      />
+                    </div>
+                  )}
+
+                  <div className="mt-2 p-3 bg-muted/50 rounded-md">
+                    <p className="text-xs text-muted-foreground">
+                      Typical SJR ranges<br/>
+                      Q1 journals: approximately 2.0 – 18+<br/>
+                      Q2 journals: approximately 1.0 – 2.0
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+            
+            <div className="flex justify-end pt-2">
+              <Button onClick={saveRetrievalSettings}>
+                {settingsSaved ? 'Saved!' : 'Save Filter Settings'}
               </Button>
             </div>
           </CardContent>

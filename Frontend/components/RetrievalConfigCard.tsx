@@ -10,9 +10,11 @@ export interface RetrievalParam {
 
 interface RetrievalConfigCardProps {
   params: RetrievalParam[];
+  journalQualityEnabled?: boolean;
+  minimumSjr?: number;
 }
 
-export function RetrievalConfigCard({ params }: RetrievalConfigCardProps) {
+export function RetrievalConfigCard({ params, journalQualityEnabled, minimumSjr }: RetrievalConfigCardProps) {
   return (
     <Card className="mb-4 bg-muted/30 border-muted">
       <CardHeader className="py-3 px-4 pb-0">
@@ -37,6 +39,20 @@ export function RetrievalConfigCard({ params }: RetrievalConfigCardProps) {
             </div>
           </div>
         ))}
+
+        {journalQualityEnabled && (
+          <div className="mt-3 pt-3 border-t border-muted">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Journal Quality</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs">🟢 Enabled</span>
+                {minimumSjr !== undefined && (
+                  <span className="text-xs text-muted-foreground">- Minimum SJR ≥ {minimumSjr}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

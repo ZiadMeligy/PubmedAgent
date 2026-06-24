@@ -9,6 +9,8 @@ export interface RetrievalConfig {
   similarity: number;
   recency: number;
   citation: number;
+  journal_quality_enabled?: boolean;
+  minimum_sjr?: number;
 }
 
 export interface PaperSearchResponse {

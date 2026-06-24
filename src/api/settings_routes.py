@@ -11,7 +11,13 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 def get_settings(current_user: Dict[str, Any] = Depends(get_current_user)):
     repo = get_conversation_repository()
     prefs = repo.get_preferences(current_user["id"])
-    return SettingsSchema(alpha=prefs["alpha"], beta=prefs["beta"], gamma=prefs["gamma"])
+    return SettingsSchema(
+        alpha=prefs["alpha"], 
+        beta=prefs["beta"], 
+        gamma=prefs["gamma"],
+        journal_quality_enabled=prefs.get("journal_quality_enabled", False),
+        minimum_sjr=prefs.get("minimum_sjr", 10.0)
+    )
 
 @router.put("", response_model=SettingsSchema)
 def update_settings(settings: SettingsSchema, current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -24,6 +30,13 @@ def update_settings(settings: SettingsSchema, current_user: Dict[str, Any] = Dep
         settings.gamma /= total
         
     repo = get_conversation_repository()
-    repo.update_preferences(current_user["id"], settings.alpha, settings.beta, settings.gamma)
+    repo.update_preferences(
+        current_user["id"], 
+        settings.alpha, 
+        settings.beta, 
+        settings.gamma,
+        settings.journal_quality_enabled,
+        settings.minimum_sjr
+    )
     
     return settings

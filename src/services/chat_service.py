@@ -55,9 +55,11 @@ class ChatService:
                 "response_type": "chat",
                 "latest_papers": [],
                 "latest_references": [],
-                "alpha": prefs["alpha"],
-                "beta": prefs["beta"],
-                "gamma": prefs["gamma"],
+                "alpha": prefs.get("alpha", 0.8),
+                "beta": prefs.get("beta", 0.1),
+                "gamma": prefs.get("gamma", 0.1),
+                "journal_quality_enabled": prefs.get("journal_quality_enabled", False),
+                "minimum_sjr": prefs.get("minimum_sjr", 10.0),
             }
 
             # 5. Invoke LangGraph
