@@ -4,6 +4,7 @@ import { Message } from '@/types';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ExternalLink } from 'lucide-react';
 import { PaperCard } from './PaperCard';
 import { ReferencesPanel } from './ReferencesPanel';
 import { RetrievalConfigCard } from './RetrievalConfigCard';
@@ -50,19 +51,26 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                 remarkPlugins={[remarkGfm]}
                 components={{
                   a: ({ node, ...props }) => {
-                    const childrenText = String(props.children);
+                    // Extract text safely from children
+                    let childrenText = "";
+                    if (Array.isArray(props.children)) {
+                      childrenText = props.children.map(c => typeof c === 'string' ? c : '').join('');
+                    } else if (typeof props.children === 'string' || typeof props.children === 'number') {
+                      childrenText = String(props.children);
+                    }
+                    
                     // Check if it's a citation like "1" (from [1](url)) or "[1]"
-                    if (/^\[?\d+\]?$/.test(childrenText)) {
-                      const num = childrenText.replace('[', '').replace(']', '');
+                    if (childrenText && /^\[?\s*\d+\s*\]?$/.test(childrenText.trim())) {
+                      const num = childrenText.replace(/\[|\]/g, '').trim();
                       return (
                         <a 
                           {...props} 
-                          className="inline-flex items-center justify-center w-4 h-4 ml-1 text-[10px] font-bold text-white bg-primary rounded-[4px] no-underline hover:opacity-70 transition-opacity align-super"
+                          className="inline-flex items-center justify-center ml-1 text-primary hover:text-primary/80 no-underline transition-colors align-baseline"
                           target="_blank"
                           rel="noopener noreferrer"
-                          title={props.href}
+                          title={props.href || `Reference ${num}`}
                         >
-                          {num}
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       );
                     }
@@ -72,7 +80,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                         {...props} 
                         target="_blank" 
                         rel="noopener noreferrer" 
-                        className="text-primary hover:underline font-medium" 
+                        className="text-primary hover:underline font-medium break-words" 
                       />
                     );
                   }

@@ -157,13 +157,45 @@ def qa_call(state: AgentState):
     question = ""
     if len(messages) >= 2:
         question = messages[-2].content if hasattr(messages[-2], 'content') else ""
+        
+    latest_papers = state.get("latest_papers", [])
+    
+    # --- NEW: QUERY REWRITING ---
+    search_query = question
+    if question and latest_papers:
+        # Build paper list string
+        paper_list_str = "\\n".join([f"{i+1}. {p.get('title', 'Unknown Title')}" for i, p in enumerate(latest_papers)])
+        
+        rewrite_prompt = f"""You are an expert search query rewriter. 
+The user is asking a question in a conversational context about some retrieved medical papers.
+Here are the titles of the currently retrieved papers in order (Rank 1 to N):
+{paper_list_str}
+
+User's raw question: {question}
+
+Rewrite this question into a standalone semantic search query that can be used to query a vector database containing the abstracts of these papers. 
+If the user refers to "the first paper", "paper 2", "the last one", etc., replace that reference with the actual title of the corresponding paper from the list above to ensure accurate semantic matching. 
+Do NOT answer the question. Just output the rewritten query string and nothing else."""
+        
+        try:
+            from langchain_core.messages import SystemMessage
+            rewrite_response = invoke_llm([SystemMessage(content=rewrite_prompt)])
+            if hasattr(rewrite_response, 'content'):
+                search_query = rewrite_response.content.strip()
+            else:
+                search_query = str(rewrite_response).strip()
+            logger.info(f"Rewrote QA query: '{question}' -> '{search_query}'")
+        except Exception as e:
+            logger.error(f"Failed to rewrite query: {e}")
+            search_query = question
+    # --- END QUERY REWRITING ---
     
     # Retrieve relevant chunks from vector store for this conversation
     paper_store = get_paper_store()
-    retrieved_chunks = paper_store.search_for_answer(question, conversation_id=conversation_id, top_k=5)
+    retrieved_chunks = paper_store.search_for_answer(search_query, conversation_id=conversation_id, top_k=5)
     
-    # Rerank the chunks
-    reranked_chunks = rerank_chunks(question, retrieved_chunks, top_k=3)
+    # Rerank the chunks using the rewritten query
+    reranked_chunks = rerank_chunks(search_query, retrieved_chunks, top_k=3)
     
     # Format chunks for Q&A model
     context = format_chunks_for_qa(reranked_chunks)
@@ -175,11 +207,11 @@ def qa_call(state: AgentState):
             logger.debug(f"  Score: {c.get('rerank_score')}")
             logger.debug(f"  Chunk: {c.get('text', '')[:100]}...")
         
-    # Prepare messages for Q&A model with context
+    # Prepare messages for Q&A model with context (use rewritten query)
     qa_system_prompt = get_qa_system_prompt()
     qa_messages = [
         qa_system_prompt,
-        HumanMessage(content=f"CONTEXT:\n{context}\n\nQUESTION: {question}")
+        HumanMessage(content=f"CONTEXT:\n{context}\n\nQUESTION: {search_query}")
     ]
     
     # Invoke Q&A model
