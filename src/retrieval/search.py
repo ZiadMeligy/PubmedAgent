@@ -90,10 +90,17 @@ def search_pubmed(query: str, max_results: int = PUBMED_MAX_RESULTS) -> List[Dic
             
         issn = getattr(article, 'issn', None)
         
+        # Extract DOI
+        doi = None
+        doi_raw = getattr(article, 'doi', None)
+        if doi_raw and isinstance(doi_raw, str):
+            doi = doi_raw.split()[0].strip()
+        
         papers.append({
             "title": title,
             "abstract": abstract,
             "pubmed_id": pubmed_id,
+            "doi": doi,
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/",
             "publication_year": publication_year,
             "citation_count": None,  # Will be filled later

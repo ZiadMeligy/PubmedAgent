@@ -45,3 +45,25 @@ export async function sendMessage(
   const data: APIResponse = await response.json();
   return data;
 }
+
+export async function checkFullText(papers: any[]): Promise<any> {
+  const token = useAuthStore.getState().token;
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/fulltext/check`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ papers: papers.map(p => ({ pmid: p.pubmed_id, doi: p.doi, title: p.title })) }),
+  });
+
+  if (!response.ok) {
+    throw new APIError(`Failed to check full text: ${response.status}`);
+  }
+
+  return response.json();
+}

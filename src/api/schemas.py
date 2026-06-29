@@ -25,6 +25,8 @@ class PaperResult(BaseModel):
     citation_count: Optional[int] = None
     similarity_score: Optional[float] = None
     composite_score: Optional[float] = None
+    pubmed_id: Optional[str] = None
+    doi: Optional[str] = None
 
 
 class RetrievalConfig(BaseModel):

@@ -6,6 +6,10 @@ export interface Paper {
   citation_count: number;
   similarity_score: number;
   composite_score: number;
+  pubmed_id: string;
+  doi?: string;
+  fullTextStatus?: 'UNKNOWN' | 'CHECKING' | 'AVAILABLE' | 'NOT_AVAILABLE';
+  pdfUrl?: string;
 }
 
 export interface Reference {

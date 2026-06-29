@@ -12,6 +12,7 @@ interface ConversationState {
   setCurrentConversation: (id: string) => void;
   deleteConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Message) => void;
+  updateMessage: (conversationId: string, messageId: string, updater: (msg: Message) => Message) => void;
   updateConversationTitle: (id: string, title: string) => void;
   setLoading: (isLoading: boolean, message?: string) => void;
   clearAllConversations: () => void;
@@ -77,6 +78,20 @@ export const useConversationStore = create<ConversationState>()(
                 messages: updatedMessages,
                 title,
                 updatedAt: new Date(),
+              };
+            }
+            return c;
+          }),
+        }));
+      },
+
+      updateMessage: (conversationId: string, messageId: string, updater: (msg: Message) => Message) => {
+        set((state) => ({
+          conversations: state.conversations.map((c) => {
+            if (c.id === conversationId) {
+              return {
+                ...c,
+                messages: c.messages.map((m) => (m.id === messageId ? updater(m) : m)),
               };
             }
             return c;

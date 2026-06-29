@@ -118,6 +118,8 @@ class ChatService:
                     citation_count=p.get("citation_count"),
                     similarity_score=p.get("abstract_similarity"),
                     composite_score=p.get("composite_score"),
+                    pubmed_id=p.get("pubmed_id"),
+                    doi=p.get("doi"),
                 )
             )
         return PaperSearchResponse(

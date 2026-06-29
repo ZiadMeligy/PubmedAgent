@@ -25,7 +25,7 @@ from src.api.schemas import (
 from src.services.chat_service import ChatService
 from src.services.conversation_manager import get_conversation_manager
 from src.auth.dependencies import get_current_user
-from src.api import auth_routes, settings_routes
+from src.api import auth_routes, settings_routes, fulltext_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +42,7 @@ app = FastAPI(
 
 app.include_router(auth_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(fulltext_routes.router)
 
 # ─── CORS ────────────────────────────────────────────────────────
 

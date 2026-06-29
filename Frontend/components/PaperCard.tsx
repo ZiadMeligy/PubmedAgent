@@ -3,7 +3,9 @@
 import { Paper } from '@/types';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, Calendar, Quote, TrendingUp, BarChart3 } from 'lucide-react';
+import { ExternalLink, Calendar, Quote, TrendingUp, BarChart3, FileText, Loader2, CheckCircle2, XCircle, Download } from 'lucide-react';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface PaperCardProps {
   paper: Paper;
@@ -42,7 +44,36 @@ export function PaperCard({ paper }: PaperCardProps) {
           </div>
         </div>
       </CardContent>
-      <CardFooter className="pt-0">
+      <CardFooter className="pt-0 flex flex-col gap-2">
+        {paper.fullTextStatus && (
+          <div className="w-full text-xs font-medium bg-muted/50 rounded p-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              {paper.fullTextStatus === 'CHECKING' && (
+                <><Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" /> <span className="text-blue-500">Checking PDF...</span></>
+              )}
+              {paper.fullTextStatus === 'AVAILABLE' && (
+                <><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> <span className="text-green-600">PDF Available</span></>
+              )}
+              {paper.fullTextStatus === 'NOT_AVAILABLE' && (
+                <><XCircle className="h-3.5 w-3.5 text-red-500" /> <span className="text-red-500">PDF Not Available</span></>
+              )}
+            </div>
+            {paper.fullTextStatus === 'AVAILABLE' && (
+              <Button 
+                variant="default" 
+                size="sm" 
+                className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(`${API_BASE_URL}/api/fulltext/download/${paper.pubmed_id}?doi=${paper.doi || ''}`, '_blank');
+                }}
+              >
+                <Download className="h-3 w-3 mr-1" />
+                Download
+              </Button>
+            )}
+          </div>
+        )}
         <Button
           variant="outline"
           size="sm"

@@ -8,13 +8,62 @@ import { ExternalLink } from 'lucide-react';
 import { PaperCard } from './PaperCard';
 import { ReferencesPanel } from './ReferencesPanel';
 import { RetrievalConfigCard } from './RetrievalConfigCard';
+import { Button } from './ui/button';
+import { Loader2 } from 'lucide-react';
+import { checkFullText } from '@/lib/api';
+import { useConversationStore } from '@/lib/store';
+import { useState } from 'react';
 
 interface MessageBubbleProps {
   message: Message;
+  conversationId?: string;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const isUser = message.type === 'user';
+  const { updateMessage, currentConversationId } = useConversationStore();
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleCheckFullText = async () => {
+    const targetConvId = conversationId || currentConversationId;
+    if (!targetConvId || !message.papers || message.papers.length === 0) return;
+
+    setIsChecking(true);
+    
+    // Mark all papers as checking initially
+    updateMessage(targetConvId, message.id, (msg) => ({
+      ...msg,
+      papers: msg.papers?.map(p => ({ ...p, fullTextStatus: 'CHECKING' }))
+    }));
+
+    try {
+      const response = await checkFullText(message.papers);
+      
+      updateMessage(targetConvId, message.id, (msg) => {
+        const newPapers = msg.papers?.map(p => {
+          const res = response.papers?.find((r: any) => r.pmid === p.pubmed_id);
+          if (res) {
+            return {
+              ...p,
+              fullTextStatus: res.available ? 'AVAILABLE' : 'NOT_AVAILABLE',
+              pdfUrl: res.pdf_url
+            };
+          }
+          return { ...p, fullTextStatus: 'NOT_AVAILABLE' };
+        });
+        return { ...msg, papers: newPapers as any };
+      });
+    } catch (error) {
+      console.error('Failed to check full text:', error);
+      // Reset status on error so they can try again, or mark as not available
+      updateMessage(targetConvId, message.id, (msg) => ({
+        ...msg,
+        papers: msg.papers?.map(p => ({ ...p, fullTextStatus: 'NOT_AVAILABLE' }))
+      }));
+    } finally {
+      setIsChecking(false);
+    }
+  };
 
   return (
     <div
@@ -90,10 +139,28 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               </ReactMarkdown>
             </div>
             {message.papers && message.papers.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 mt-4 not-prose">
-                {message.papers.slice(0, 5).map((paper) => (
-                  <PaperCard key={paper.rank} paper={paper} />
-                ))}
+              <div className="mt-4 not-prose">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 mb-3">
+                  {message.papers.slice(0, 5).map((paper) => (
+                    <PaperCard key={paper.rank} paper={paper} />
+                  ))}
+                </div>
+                
+                {/* Full Text Button */}
+                {message.type === 'assistant' && (
+                  <div className="flex justify-start mt-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleCheckFullText}
+                      disabled={isChecking || message.papers.every(p => p.fullTextStatus === 'AVAILABLE' || p.fullTextStatus === 'NOT_AVAILABLE')}
+                      className="text-xs"
+                    >
+                      {isChecking && <Loader2 className="w-3 h-3 mr-2 animate-spin" />}
+                      Check Full Text Availability
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
             {message.references && message.references.length > 0 && (
