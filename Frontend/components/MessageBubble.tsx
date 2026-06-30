@@ -9,7 +9,7 @@ import { PaperCard } from './PaperCard';
 import { ReferencesPanel } from './ReferencesPanel';
 import { RetrievalConfigCard } from './RetrievalConfigCard';
 import { Button } from './ui/button';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Database } from 'lucide-react';
 import { checkFullText } from '@/lib/api';
 import { useConversationStore } from '@/lib/store';
 import { useState } from 'react';
@@ -23,6 +23,101 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const isUser = message.type === 'user';
   const { updateMessage, currentConversationId } = useConversationStore();
   const [isChecking, setIsChecking] = useState(false);
+  const [isAddingAll, setIsAddingAll] = useState(false);
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  const handleAddAllToDB = () => {
+    const targetConvId = conversationId || currentConversationId;
+    if (!targetConvId || !message.papers || message.papers.length === 0) return;
+
+    setIsAddingAll(true);
+    
+    // Find all papers that are AVAILABLE and not already INDEXING or INDEXED
+    const eligiblePapers = message.papers.filter(p => 
+      p.fullTextStatus === 'AVAILABLE' && 
+      (!p.indexStatus || p.indexStatus === 'NONE' || p.indexStatus === 'ERROR')
+    );
+    
+    if (eligiblePapers.length === 0) {
+      setIsAddingAll(false);
+      return;
+    }
+
+    eligiblePapers.forEach(paper => {
+      // Start indexing state
+      updateMessage(targetConvId, message.id, (msg) => ({
+        ...msg,
+        papers: msg.papers?.map(p => 
+          p.pubmed_id === paper.pubmed_id 
+            ? { ...p, indexStatus: 'INDEXING', indexMessage: 'Connecting...' } 
+            : p
+        )
+      }));
+
+      const url = new URL(`${API_BASE_URL}/api/fulltext/index/stream`);
+      url.searchParams.append('pmid', paper.pubmed_id);
+      if (paper.doi) url.searchParams.append('doi', paper.doi);
+      if (paper.title) url.searchParams.append('title', paper.title);
+      if (paper.journal) url.searchParams.append('journal', paper.journal);
+      if (paper.publication_year) url.searchParams.append('year', paper.publication_year.toString());
+
+      const source = new EventSource(url.toString());
+
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.status === 'ERROR') {
+            source.close();
+            updateMessage(targetConvId, message.id, (msg) => ({
+              ...msg,
+              papers: msg.papers?.map(p => 
+                p.pubmed_id === paper.pubmed_id 
+                  ? { ...p, indexStatus: 'ERROR', indexMessage: data.message } 
+                  : p
+              )
+            }));
+          } else if (data.status === 'INDEXED' || data.status === 'ALREADY_INDEXED') {
+            source.close();
+            updateMessage(targetConvId, message.id, (msg) => ({
+              ...msg,
+              papers: msg.papers?.map(p => 
+                p.pubmed_id === paper.pubmed_id 
+                  ? { ...p, indexStatus: data.status, indexMessage: data.message } 
+                  : p
+              )
+            }));
+          } else {
+            updateMessage(targetConvId, message.id, (msg) => ({
+              ...msg,
+              papers: msg.papers?.map(p => 
+                p.pubmed_id === paper.pubmed_id 
+                  ? { ...p, indexStatus: 'INDEXING', indexMessage: data.message } 
+                  : p
+              )
+            }));
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE message', err);
+        }
+      };
+
+      source.onerror = (err) => {
+        console.error('EventSource failed', err);
+        source.close();
+        updateMessage(targetConvId, message.id, (msg) => ({
+          ...msg,
+          papers: msg.papers?.map(p => 
+            p.pubmed_id === paper.pubmed_id 
+              ? { ...p, indexStatus: 'ERROR', indexMessage: 'Connection lost' } 
+              : p
+          )
+        }));
+      };
+    });
+    
+    // We can reset the spinner since the individual papers show their own progress
+    setTimeout(() => setIsAddingAll(false), 1000);
+  };
 
   const handleCheckFullText = async () => {
     const targetConvId = conversationId || currentConversationId;
@@ -151,9 +246,9 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                   ))}
                 </div>
                 
-                {/* Full Text Button */}
+                {/* Full Text Action Buttons */}
                 {message.type === 'assistant' && (
-                  <div className="flex justify-start mt-2">
+                  <div className="flex justify-start mt-2 gap-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -164,6 +259,27 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                       {isChecking && <Loader2 className="w-3 h-3 mr-2 animate-spin" />}
                       Check Full Text Availability
                     </Button>
+                    
+                    {/* Render Add All to DB button only if check is fully done and at least 1 paper is available */}
+                    {message.papers.every(p => p.fullTextStatus !== 'CHECKING') && 
+                     message.papers.some(p => p.fullTextStatus) && 
+                     message.papers.some(p => p.fullTextStatus === 'AVAILABLE') && (
+                      <Button 
+                        variant="default" 
+                        size="sm" 
+                        onClick={handleAddAllToDB}
+                        disabled={isAddingAll || message.papers.every(p => 
+                          p.fullTextStatus !== 'AVAILABLE' || 
+                          p.indexStatus === 'INDEXED' || 
+                          p.indexStatus === 'ALREADY_INDEXED' || 
+                          p.indexStatus === 'INDEXING'
+                        )}
+                        className="text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+                      >
+                        {isAddingAll ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Database className="w-3 h-3 mr-2" />}
+                        Add All Available to DB
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

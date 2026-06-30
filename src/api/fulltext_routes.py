@@ -40,17 +40,19 @@ async def download_pdf(pmid: str, doi: Optional[str] = None):
         
     pdf_url = result["pdf_url"]
     
-    async def stream_pdf():
+    try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            headers = {"User-Agent": "PubmedAgent/1.0"}
-            async with client.stream("GET", pdf_url, headers=headers) as response:
-                if response.status_code != 200:
-                    raise HTTPException(status_code=response.status_code, detail="Failed to fetch PDF from provider")
-                async for chunk in response.aiter_bytes():
-                    yield chunk
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            response = await client.get(pdf_url, headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch PDF from provider (HTTP {response.status_code})")
+            pdf_bytes = response.content
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Error connecting to PDF provider: {str(e)}")
 
-    return StreamingResponse(
-        stream_pdf(), 
+    from fastapi.responses import Response
+    return Response(
+        content=pdf_bytes, 
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=paper_{pmid}.pdf"}
     )
