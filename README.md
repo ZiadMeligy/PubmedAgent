@@ -107,9 +107,4 @@ Follow these steps to deploy both the backend and frontend locally.
 - Click **Check Full Text Availability** to locate PDFs.
 - Click **Add to DB** to ingest the PDF directly into the Qdrant Vector database for future deep-retrieval QA!
 
----
 
-## ⚙️ Architecture Notes
-- **Authentication**: JWT-based auth is implemented and stored via SQLite (`conversations.db`).
-- **Qdrant Vector Database**: By default, Qdrant runs entirely in memory (`:memory:` fallback) or via a local persistent file depending on your `src/config.py`. It manages two distinct spaces: conversational metadata (isolated per chat) and `pubmed_fulltext` (global knowledge).
-- **Publisher Firewalls**: The PDF downloader proxy is configured to mimic standard browser `User-Agent` strings to seamlessly bypass basic 403 Forbidden publisher firewalls.
