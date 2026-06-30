@@ -69,7 +69,7 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
     # Download the PDF
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            headers = {"User-Agent": "PubmedAgent/1.0"}
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
             response = await client.get(pdf_url, headers=headers)
             response.raise_for_status()
             pdf_bytes = response.content
