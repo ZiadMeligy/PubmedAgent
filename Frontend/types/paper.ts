@@ -10,6 +10,8 @@ export interface Paper {
   doi?: string;
   fullTextStatus?: 'UNKNOWN' | 'CHECKING' | 'AVAILABLE' | 'NOT_AVAILABLE';
   pdfUrl?: string;
+  indexStatus?: 'NONE' | 'INDEXING' | 'INDEXED' | 'ALREADY_INDEXED' | 'ERROR';
+  indexMessage?: string;
 }
 
 export interface Reference {

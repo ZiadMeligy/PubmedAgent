@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import httpx
 from src.fulltext.service import check_multiple_papers, check_paper_availability
+from src.fulltext.index_service import index_paper
 
 router = APIRouter(prefix="/api/fulltext", tags=["fulltext"])
 
@@ -52,4 +53,18 @@ async def download_pdf(pmid: str, doi: Optional[str] = None):
         stream_pdf(), 
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=paper_{pmid}.pdf"}
+    )
+
+@router.get("/index/stream")
+async def index_fulltext_stream(
+    pmid: str, 
+    doi: Optional[str] = None, 
+    title: Optional[str] = None,
+    journal: Optional[str] = None,
+    year: Optional[int] = None
+):
+    """Stream full-text indexing progress via Server-Sent Events (SSE)."""
+    return StreamingResponse(
+        index_paper(pmid, doi, title, journal, year),
+        media_type="text/event-stream"
     )

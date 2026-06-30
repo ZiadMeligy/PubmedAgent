@@ -142,7 +142,12 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
               <div className="mt-4 not-prose">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 mb-3">
                   {message.papers.slice(0, 5).map((paper) => (
-                    <PaperCard key={paper.rank} paper={paper} />
+                    <PaperCard 
+                      key={paper.rank} 
+                      paper={paper} 
+                      conversationId={conversationId || currentConversationId}
+                      messageId={message.id}
+                    />
                   ))}
                 </div>
                 

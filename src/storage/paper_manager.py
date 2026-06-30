@@ -7,6 +7,15 @@ from src.storage import QdrantVectorStore
 from src.processing import chunk_abstract
 from src.processing.semantic_chunker import SemanticChunker
 
+# Global instances
+_fulltext_store = None
+
+def get_fulltext_store() -> QdrantVectorStore:
+    global _fulltext_store
+    if _fulltext_store is None:
+        _fulltext_store = QdrantVectorStore(collection_name="pubmed_fulltext")
+    return _fulltext_store
+
 
 class PaperAbstractStore:
     """Manages chunking and storage of paper abstracts in Qdrant."""
@@ -66,7 +75,7 @@ class PaperAbstractStore:
     
     def search_for_answer(self, query: str, conversation_id: Optional[str] = None, top_k: int = 5) -> List[Dict]:
         """
-        Search vector store for chunks relevant to query.
+        Search vector store for chunks relevant to query from both abstracts and full text.
         
         Args:
             query: Question/query text
@@ -76,8 +85,26 @@ class PaperAbstractStore:
         Returns:
             List of relevant chunks with scores and metadata
         """
-        results = self.vector_store.search(query, limit=top_k, score_threshold=0.0, conversation_id=conversation_id)
-        return results
+        # Search abstract store (filtered by conversation)
+        abstract_results = self.vector_store.search(query, limit=top_k, score_threshold=0.0, conversation_id=conversation_id)
+        for r in abstract_results:
+            if 'source' not in r:
+                r['source'] = 'abstract'
+                
+        # Search global full-text store (no conversation filter)
+        fulltext_store = get_fulltext_store()
+        fulltext_results = []
+        try:
+            fulltext_results = fulltext_store.search(query, limit=top_k, score_threshold=0.0, conversation_id=None)
+        except Exception as e:
+            # Collection might not exist yet if nothing was indexed
+            pass
+            
+        # Merge, sort by score descending, and take top_k
+        all_results = abstract_results + fulltext_results
+        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        
+        return all_results[:top_k]
     
     def clear_store(self):
         """Clear all chunks from the vector store."""
