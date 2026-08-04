@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.llm.model import invoke_llm
 
@@ -35,6 +36,27 @@ Output exactly a JSON object matching this schema:
 }
 """
 
+
+def _extract_json_object(response_text: str) -> dict:
+    """Extract the first complete JSON object from an LLM response."""
+    if not response_text or not response_text.strip():
+        raise ValueError("The model returned an empty response")
+
+    cleaned = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL).strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    start = cleaned.find("{")
+    if start == -1:
+        raise ValueError("The model response did not contain a JSON object")
+
+    decoder = json.JSONDecoder()
+    parsed, _ = decoder.raw_decode(cleaned[start:])
+    if not isinstance(parsed, dict):
+        raise ValueError("The model response JSON was not an object")
+    return parsed
+
+
 def rank_entity_importance(entities: list) -> dict:
     """
     Classify and rank a list of raw biomedical entities using the LLM.
@@ -55,17 +77,8 @@ def rank_entity_importance(entities: list) -> dict:
     
     try:
         response_text = invoke_llm(messages).content
-        
-        # Parse JSON from response (handling potential markdown blocks)
-        if "```json" in response_text:
-            json_str = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            json_str = response_text.split("```")[1].strip()
-        else:
-            json_str = response_text.strip()
-            
-        ranked_entities = json.loads(json_str)
-        return ranked_entities
+
+        return _extract_json_object(response_text)
     except Exception as e:
         logger.error(f"Failed to rank entities: {e}")
         # Fallback: put everything in medium importance

@@ -30,7 +30,7 @@ By orchestrating multiple specialized LLM sub-agents (via LangGraph) and utilizi
 
 - **Backend**: Python, FastAPI, LangChain, LangGraph, PyMuPDF (fitz), httpx.
 - **Database / Vector Store**: SQLite (Conversation histories & Auth), Qdrant (Abstract & Full-Text Embeddings).
-- **LLM Provider**: Groq API (Defaulting to `llama-3.1-8b-instant`).
+- **LLM Provider**: Groq API (Defaulting to `qwen/qwen3.6-27b`).
 - **Frontend**: Next.js (React 18), Tailwind CSS, TypeScript, Zustand.
 
 ---
@@ -67,7 +67,7 @@ Follow these steps to deploy both the backend and frontend locally.
    Create a `.env` file in the root directory (if it doesn't exist) and add your Groq API key:
    ```env
    GROQ_API_KEY="your_groq_api_key_here"
-   GROQ_MODEL="llama-3.1-8b-instant"
+   GROQ_MODEL="qwen/qwen3.6-27b"
    TOKENIZERS_PARALLELISM="false"
    ```
 

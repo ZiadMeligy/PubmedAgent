@@ -14,8 +14,13 @@ load_dotenv()
 
 llm = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
-    model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    model=os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b"),
     temperature=0,
+    # This application expects concise routing markers and JSON, not a visible
+    # reasoning trace. Otherwise Qwen can spend the completion on <think> text
+    # before producing the required output.
+    reasoning_effort="none",
+    reasoning_format="hidden",
     request_timeout=30,  # fail fast instead of hanging indefinitely
     max_retries=1,
 )
