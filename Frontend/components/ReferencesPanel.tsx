@@ -28,6 +28,12 @@ export function ReferencesPanel({ references }: ReferencesPanelProps) {
             </CardHeader>
             <CardContent className="pb-2">
               <p className="text-xs text-muted-foreground">
+                {ref.rank ? (
+                  <>
+                    Ranked paper <span className="font-semibold">#{ref.rank}</span>
+                    {' · '}
+                  </>
+                ) : null}
                 PMID: <span className="font-mono">{ref.pmid}</span>
               </p>
             </CardContent>

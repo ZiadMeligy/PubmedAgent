@@ -10,7 +10,10 @@ from src.config import EMBEDDING_MODEL_NAME
 # -------------------------
 # BGE MODEL SETUP
 # -------------------------
-embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+embedding_model = SentenceTransformer(
+    EMBEDDING_MODEL_NAME,
+    local_files_only=True,
+)
 
 
 # -------------------------

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import httpx
 from src.fulltext.service import check_multiple_papers, check_paper_availability
 from src.fulltext.index_service import index_paper
+from src.fulltext.pdf_extractor import ARTIFACT_ROOT
 
 router = APIRouter(prefix="/api/fulltext", tags=["fulltext"])
 
@@ -70,3 +71,13 @@ async def index_fulltext_stream(
         index_paper(pmid, doi, title, journal, year),
         media_type="text/event-stream"
     )
+
+
+@router.get("/artifacts/{pmid}/{filename}")
+async def get_paper_artifact(pmid: str, filename: str):
+    """Serve an extracted figure while preventing path traversal."""
+    artifact_root = ARTIFACT_ROOT.resolve()
+    requested = (artifact_root / pmid / filename).resolve()
+    if not requested.is_relative_to(artifact_root) or not requested.is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(requested)

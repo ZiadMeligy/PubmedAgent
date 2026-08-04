@@ -11,12 +11,14 @@ By orchestrating multiple specialized LLM sub-agents (via LangGraph) and utilizi
 ### 🔍 Agentic Search Pipeline (LangGraph)
 - **Natural Language to Boolean**: Converts complex clinical cases into highly specific PubMed Boolean queries.
 - **Reranker & Grader**: Synthesizes abstract content and rigorously scores papers based on Semantic Similarity, Recency, Citation Count, and Journal Quality (SJR index).
-- **Q&A Agent**: Answers user questions directly using the retrieved context, citing specific papers as evidence.
+- **Rank-Locked Q&A Agent**: Resolves ordinal references against the latest composite-score order, filters Qdrant by PMID, reranks with `BAAI/bge-reranker-base`, and cites the requested papers.
+- **Cross-Paper Comparisons**: Produces evidence-grounded Markdown tables for questions comparing selected ranked papers.
 
 ### 📄 On-Demand Full-Text Ingestion & PDF Proxy
 - **Multi-Provider Availability Checking**: Falls back across 4 major APIs (Europe PMC, NCBI PMC, Unpaywall, Crossref) to locate free Open Access PDFs.
 - **Proxy Downloading**: Downloads PDFs securely through the backend without exposing the frontend to CORS limitations or publisher firewalls.
-- **Vector Database Augmentation**: Automatically extracts text from PDFs (using `PyMuPDF`), chunks it semantically (via `langchain`), generates embeddings, and pushes it to a global `Qdrant` collection.
+- **Multimodal PDF Ingestion**: Extracts page-aware text, structured tables, figures, captions, and nearby context with `PyMuPDF`, then stores searchable evidence in Qdrant.
+- **Figure Retrieval**: Relevant extracted figures can be passed to the vision-capable QA model and rendered back in the chat with paper-rank and PDF-page context.
 - **Hybrid LLM Retrieval**: Once a paper is indexed, future clinical queries pull deep context from *both* the PubMed abstracts and the global full-text database.
 
 ### ⚡ Responsive Frontend
@@ -111,5 +113,5 @@ Follow these steps to deploy both the backend and frontend locally.
 
 ## ⚙️ Architecture Notes
 - **Authentication**: JWT-based auth is implemented and stored via SQLite (`conversations.db`).
-- **Qdrant Vector Database**: By default, Qdrant runs entirely in memory (`:memory:` fallback) or via a local persistent file depending on your `src/config.py`. It manages two distinct spaces: conversational metadata (isolated per chat) and `pubmed_fulltext` (global knowledge).
+- **Qdrant Vector Database**: The app first connects to `QDRANT_URL`. If no server is available, it uses persistent local Qdrant storage under `data/qdrant/` (or `QDRANT_LOCAL_PATH`) rather than losing vectors on restart. Abstract and full-text collections remain separate.
 - **Publisher Firewalls**: The PDF downloader proxy is configured to mimic standard browser `User-Agent` strings to seamlessly bypass basic 403 Forbidden publisher firewalls.

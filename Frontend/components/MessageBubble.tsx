@@ -227,12 +227,50 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                         className="text-primary hover:underline font-medium break-words" 
                       />
                     );
-                  }
+                  },
+                  img: ({ node, src, alt, ...props }) => {
+                    const resolvedSrc = src?.startsWith('/')
+                      ? `${API_BASE_URL}${src}`
+                      : src;
+                    return (
+                      <img
+                        {...props}
+                        src={resolvedSrc}
+                        alt={alt || 'Paper figure'}
+                        className="my-3 max-h-[32rem] w-auto rounded-lg border bg-white object-contain"
+                        loading="lazy"
+                      />
+                    );
+                  },
                 }}
               >
                 {message.content}
               </ReactMarkdown>
             </div>
+            {message.artifacts?.some(artifact => artifact.type === 'image' && artifact.url) && (
+              <div className="not-prose grid grid-cols-1 gap-3 md:grid-cols-2">
+                {message.artifacts
+                  .filter(artifact => artifact.type === 'image' && artifact.url)
+                  .map(artifact => (
+                    <figure key={artifact.artifact_id} className="overflow-hidden rounded-lg border bg-background">
+                      <img
+                        src={artifact.url?.startsWith('/') ? `${API_BASE_URL}${artifact.url}` : artifact.url}
+                        alt={artifact.label}
+                        className="max-h-80 w-full bg-white object-contain"
+                        loading="lazy"
+                      />
+                      <figcaption className="px-3 py-2 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          Ranked paper #{artifact.rank ?? '?'}
+                        </span>
+                        {' · '}
+                        {artifact.label}
+                        {artifact.page_number ? ` · PDF page ${artifact.page_number}` : ''}
+                      </figcaption>
+                    </figure>
+                  ))}
+              </div>
+            )}
             {message.papers && message.papers.length > 0 && (
               <div className="mt-4 not-prose">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 mb-3">
@@ -240,7 +278,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                     <PaperCard 
                       key={paper.rank} 
                       paper={paper} 
-                      conversationId={conversationId || currentConversationId}
+                      conversationId={conversationId || currentConversationId || undefined}
                       messageId={message.id}
                     />
                   ))}

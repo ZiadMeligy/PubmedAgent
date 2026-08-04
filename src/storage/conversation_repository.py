@@ -83,6 +83,17 @@ class ConversationRepository:
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
                 )
             ''')
+
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS ranked_papers (
+                    conversation_id TEXT NOT NULL,
+                    rank INTEGER NOT NULL,
+                    paper_json TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (conversation_id, rank),
+                    FOREIGN KEY(conversation_id) REFERENCES conversations(id)
+                )
+            ''')
             
             try:
                 conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
@@ -190,8 +201,65 @@ class ConversationRepository:
     def delete_conversation(self, conversation_id: str) -> None:
         """Delete a conversation and its messages."""
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM ranked_papers WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+            conn.commit()
+
+    def save_ranked_papers(self, conversation_id: str, papers: List[Dict[str, Any]]) -> None:
+        """Replace the conversation's active ranked-paper set."""
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM ranked_papers WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            conn.executemany(
+                """
+                INSERT INTO ranked_papers (conversation_id, rank, paper_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        conversation_id,
+                        rank,
+                        json.dumps({**paper, "rank": rank}),
+                        now,
+                    )
+                    for rank, paper in enumerate(papers, 1)
+                ],
+            )
+            conn.commit()
+
+    def get_ranked_papers(self, conversation_id: str) -> List[Dict[str, Any]]:
+        """Return the active paper set in immutable composite-score rank order."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT rank, paper_json
+                FROM ranked_papers
+                WHERE conversation_id = ?
+                ORDER BY rank ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+
+        papers = []
+        for rank, paper_json in rows:
+            try:
+                paper = json.loads(paper_json)
+                paper["rank"] = rank
+                papers.append(paper)
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return papers
+
+    def clear_ranked_papers(self, conversation_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM ranked_papers WHERE conversation_id = ?",
+                (conversation_id,),
+            )
             conn.commit()
 
     # --- User Management ---

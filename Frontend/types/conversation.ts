@@ -1,4 +1,4 @@
-import { Paper, Reference } from './paper';
+import { Paper, PaperArtifact, Reference } from './paper';
 import { RetrievalConfig } from './api';
 
 export type MessageType = 'user' | 'assistant';
@@ -13,6 +13,7 @@ export interface Message {
   responseType?: ResponseType;
   papers?: Paper[];
   references?: Reference[];
+  artifacts?: PaperArtifact[];
   retrievalConfig?: RetrievalConfig;
 }
 

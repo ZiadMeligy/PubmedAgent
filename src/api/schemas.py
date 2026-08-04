@@ -42,6 +42,18 @@ class ReferenceResult(BaseModel):
     pmid: str
     url: str
     year: Optional[int] = None
+    rank: Optional[int] = None
+
+
+class ArtifactResult(BaseModel):
+    artifact_id: str
+    type: str
+    pmid: str
+    rank: Optional[int] = None
+    title: str
+    label: str
+    page_number: Optional[int] = None
+    url: Optional[str] = None
 
 
 # ─── Response Models ─────────────────────────────────────────────
@@ -64,6 +76,7 @@ class QAResponse(BaseModel):
     conversation_id: str
     response: str
     references: List[ReferenceResult]
+    artifacts: List[ArtifactResult] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -137,4 +150,3 @@ class SettingsSchema(BaseModel):
     gamma: float
     journal_quality_enabled: bool = False
     minimum_sjr: float = 10.0
-

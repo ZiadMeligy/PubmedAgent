@@ -1,16 +1,16 @@
 import asyncio
 import logging
-import fitz  # PyMuPDF
-import io
 import httpx
-from typing import AsyncGenerator, Dict, Any
+from typing import AsyncGenerator
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from src.fulltext.pdf_extractor import extract_pdf_structure
 from src.fulltext.service import check_paper_availability
 from src.storage import QdrantVectorStore
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 logger = logging.getLogger(__name__)
+INDEX_VERSION = 3
 
 # Global vector store for full text
 _fulltext_store = None
@@ -30,13 +30,18 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
     
     # 1. Duplicate Detection
     try:
-        # Check if PMID already exists
+        # Only the structure-aware schema counts as current. Papers indexed by
+        # the old text-only pipeline are transparently rebuilt.
         query_filter = Filter(
             must=[
                 FieldCondition(
                     key="pmid",
                     match=MatchValue(value=pmid)
-                )
+                ),
+                FieldCondition(
+                    key="index_version",
+                    match=MatchValue(value=INDEX_VERSION),
+                ),
             ]
         )
         # Search with a dummy query just to trigger the filter
@@ -49,6 +54,7 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
         if scroll_res:
             yield "data: {\"status\": \"ALREADY_INDEXED\", \"message\": \"Paper already indexed\"}\n\n"
             return
+        store.delete_by_filter(pmid=pmid)
     except Exception as e:
         logger.warning(f"Error checking duplicates: {e}")
         # Proceed if check fails
@@ -78,24 +84,12 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
         yield f"data: {{\"status\": \"ERROR\", \"message\": \"Failed to download PDF: {str(e)}\"}}\n\n"
         return
 
-    yield "data: {\"status\": \"EXTRACTING\", \"message\": \"Extracting text from PDF...\"}\n\n"
+    yield "data: {\"status\": \"EXTRACTING\", \"message\": \"Extracting text, tables, and figures from PDF...\"}\n\n"
     
-    # 3. Extract Text using PyMuPDF
+    # 3. Structure-aware PDF extraction
     try:
-        # Run CPU-bound extraction in a thread
-        def extract_text():
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            text = ""
-            for page in doc:
-                text += page.get_text() + "\n\n"
-            return text
-            
-        full_text = await asyncio.to_thread(extract_text)
-        
-        # Clean text
-        full_text = " ".join(full_text.split())
-        
-        if not full_text.strip():
+        extracted = await asyncio.to_thread(extract_pdf_structure, pdf_bytes, pmid)
+        if not any(page["text"].strip() for page in extracted["pages"]):
             yield "data: {\"status\": \"ERROR\", \"message\": \"No text could be extracted from the PDF\"}\n\n"
             return
             
@@ -114,7 +108,25 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
             separators=["\n\n", "\n", ".", " ", ""]
         )
         
-        chunks = splitter.split_text(full_text)
+        chunks = []
+        for page in extracted["pages"]:
+            page_number = page["page_number"]
+            for page_chunk_index, text in enumerate(
+                splitter.split_text(page["text"]),
+                1,
+            ):
+                chunks.append(
+                    {
+                        "text": text,
+                        "page_number": page_number,
+                        "page_chunk_index": page_chunk_index,
+                        "content_type": "text",
+                        "section": f"PDF page {page_number}",
+                    }
+                )
+
+        chunks.extend(extracted["tables"])
+        chunks.extend(extracted["images"])
         
         if not chunks:
             yield "data: {\"status\": \"ERROR\", \"message\": \"Chunking resulted in 0 chunks\"}\n\n"
@@ -132,17 +144,20 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
         chunk_dicts = []
         total_chunks = len(chunks)
         
-        for i, text in enumerate(chunks):
+        for i, chunk in enumerate(chunks):
             chunk_dicts.append({
-                "text": text,
+                **chunk,
                 "pmid": pmid,
                 "doi": doi,
                 "title": title,
                 "journal": journal,
                 "year": year,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                 "chunk_index": i + 1,
+                "chunk_id": f"{pmid}_fulltext_{i + 1}",
                 "total_chunks": total_chunks,
-                "source": "fulltext"
+                "source": "fulltext",
+                "index_version": INDEX_VERSION,
             })
             
         # We can just use the store's add_chunks method which generates embeddings synchronously.
@@ -160,4 +175,12 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
         return
         
     # Success!
-    yield f"data: {{\"status\": \"INDEXED\", \"message\": \"✅ Indexed\", \"chunks_created\": {chunks_added}}}\n\n"
+    table_count = len(extracted["tables"])
+    image_count = len(extracted["images"])
+    yield (
+        f"data: {{\"status\": \"INDEXED\", "
+        f"\"message\": \"✅ Indexed text, {table_count} tables, and {image_count} figures\", "
+        f"\"chunks_created\": {chunks_added}, "
+        f"\"tables_created\": {table_count}, "
+        f"\"images_created\": {image_count}}}\n\n"
+    )
