@@ -5,6 +5,8 @@ Configuration and settings for the biomedical literature agent.
 import os
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
+# Hospital deployment template (leave commented while Groq is used):
+# from langchain_ollama import ChatOllama
 
 load_dotenv()
 
@@ -24,6 +26,35 @@ llm = ChatGroq(
     request_timeout=30,  # fail fast instead of hanging indefinitely
     max_retries=1,
 )
+
+# -----------------------------------------------------------------
+# OLLAMA / HOSPITAL LAN TEMPLATE — INACTIVE UNTIL MANUALLY ENABLED
+# -----------------------------------------------------------------
+# The URL is the Ollama workstation's LAN address and port. ChatOllama
+# expects the server root URL, without a trailing "/api" or "/v1".
+#
+# OLLAMA_BASE_URL = os.getenv(
+#     "OLLAMA_BASE_URL",
+#     "http://MODEL_WORKSTATION_IP:11434",
+# )
+# OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.6:35b")
+# OLLAMA_CONTEXT_LENGTH = int(os.getenv("OLLAMA_CONTEXT_LENGTH", "32768"))
+#
+# To activate Ollama later:
+# 1. Comment out the active ChatGroq `llm = ...` block above.
+# 2. Uncomment the ChatOllama import and block below.
+# 3. Set OLLAMA_BASE_URL to the model workstation's reachable LAN URL.
+# 4. Ensure that exact OLLAMA_MODEL tag is already pulled on that workstation.
+#
+# llm = ChatOllama(
+#     base_url=OLLAMA_BASE_URL,
+#     model=OLLAMA_MODEL,
+#     temperature=0,
+#     reasoning=False,       # Return final content without a thinking trace.
+#     num_ctx=OLLAMA_CONTEXT_LENGTH,
+#     num_predict=2048,
+#     keep_alive="30m",
+# )
 
 # -------------------------
 # EMBEDDINGS CONFIGURATION

@@ -35,6 +35,9 @@ Evidence may come from abstracts, full-text passages, extracted tables, or figur
    include study design, population, disease, intervention/exposure, comparator,
    methods, primary outcomes, key results, and limitations. Include only fields
    supported by evidence and write "Not reported in retrieved evidence" otherwise.
+   Keep tables compact and include only columns relevant to the question. Never use
+   raw HTML or `<br>` tags inside table cells; separate multiple cell items with
+   semicolons.
 4. Read all provided chunks carefully.
 5. Answer the user's question concisely and clearly.
 6. Cite every fact inline using the linked markdown format above.
