@@ -3,7 +3,9 @@ Reranker for retrieved chunks using semantic similarity and relevance scoring.
 """
 
 import logging
+import hashlib
 from typing import List, Dict, Optional
+from urllib.parse import quote
 from src.embeddings import get_embeddings, compute_similarity
 from sentence_transformers import CrossEncoder
 
@@ -11,6 +13,32 @@ logger = logging.getLogger(__name__)
 
 _cross_encoder = None
 _cross_encoder_unavailable = False
+
+
+def get_evidence_id(chunk: Dict) -> str:
+    """Return a stable identifier suitable for an evidence link."""
+    existing = chunk.get("chunk_id") or chunk.get("artifact_id")
+    if existing:
+        return str(existing)
+    digest = hashlib.sha1(
+        (
+            str(chunk.get("pmid") or "")
+            + "\n"
+            + str(chunk.get("text") or "")
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{chunk.get('pmid', 'unknown')}_evidence_{digest}"
+
+
+def get_evidence_url(chunk: Dict, conversation_id: Optional[str]) -> str:
+    pmid = quote(str(chunk.get("pmid") or "unknown"), safe="")
+    evidence_id = quote(get_evidence_id(chunk), safe="")
+    params = [f"chunk_id={evidence_id}"]
+    if conversation_id:
+        params.append(f"conversation_id={quote(str(conversation_id), safe='')}")
+    if chunk.get("page_number"):
+        params.append(f"page={int(chunk['page_number'])}")
+    return f"/evidence/{pmid}?{'&'.join(params)}"
 
 
 def _get_cross_encoder():
@@ -96,7 +124,10 @@ def rerank_chunks(
     return balanced
 
 
-def format_chunks_for_qa(chunks: List[Dict]) -> str:
+def format_chunks_for_qa(
+    chunks: List[Dict],
+    conversation_id: Optional[str] = None,
+) -> str:
     """
     Format reranked chunks for Q&A model context.
     Deduplicates sources to include paper metadata only once.
@@ -132,6 +163,9 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
             'section': chunk.get('section') or 'Unknown',
             'content_type': chunk.get('content_type') or 'text',
             'artifact_url': chunk.get('artifact_url'),
+            'evidence_id': get_evidence_id(chunk),
+            'evidence_url': get_evidence_url(chunk, conversation_id),
+            'page_number': chunk.get('page_number'),
         })
         
     for idx, (pmid, paper) in enumerate(papers.items(), 1):
@@ -148,6 +182,10 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
                 f"{chunk['content_type'].upper()} EVIDENCE "
                 f"(Section: {chunk['section']}; Relevance: {chunk['score']:.4f}):\n"
             )
+            context += f"EVIDENCE ID: {chunk['evidence_id']}\n"
+            context += f"EVIDENCE URL: {chunk['evidence_url']}\n"
+            if chunk.get("page_number"):
+                context += f"PDF PAGE: {chunk['page_number']}\n"
             context += f"{chunk['text']}\n\n"
             if chunk.get("artifact_url"):
                 context += f"DISPLAYABLE ARTIFACT URL: {chunk['artifact_url']}\n\n"

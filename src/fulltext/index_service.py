@@ -4,13 +4,13 @@ import httpx
 from typing import AsyncGenerator
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from src.fulltext.pdf_extractor import extract_pdf_structure
+from src.fulltext.pdf_extractor import extract_pdf_structure, get_paper_artifact_dir
 from src.fulltext.service import check_paper_availability
 from src.storage import QdrantVectorStore
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
 logger = logging.getLogger(__name__)
-INDEX_VERSION = 3
+INDEX_VERSION = 5
 
 # Global vector store for full text
 _fulltext_store = None
@@ -83,6 +83,12 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
         logger.error(f"Failed to download PDF for {pmid}: {e}")
         yield f"data: {{\"status\": \"ERROR\", \"message\": \"Failed to download PDF: {str(e)}\"}}\n\n"
         return
+
+    # Keep the indexed source so evidence links can reopen its exact PDF page.
+    paper_dir = get_paper_artifact_dir(pmid)
+    paper_dir.mkdir(parents=True, exist_ok=True)
+    source_pdf_path = paper_dir / "source.pdf"
+    await asyncio.to_thread(source_pdf_path.write_bytes, pdf_bytes)
 
     yield "data: {\"status\": \"EXTRACTING\", \"message\": \"Extracting text, tables, and figures from PDF...\"}\n\n"
     
@@ -157,6 +163,7 @@ async def index_paper(pmid: str, doi: str = None, title: str = None, journal: st
                 "chunk_id": f"{pmid}_fulltext_{i + 1}",
                 "total_chunks": total_chunks,
                 "source": "fulltext",
+                "source_pdf_path": str(source_pdf_path),
                 "index_version": INDEX_VERSION,
             })
             

@@ -5,7 +5,7 @@ Configuration and settings for the biomedical literature agent.
 import os
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
-# Hospital deployment template (leave commented while Groq is used):
+# Hospital deployment template
 # from langchain_ollama import ChatOllama
 
 load_dotenv()

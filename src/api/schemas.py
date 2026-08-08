@@ -14,6 +14,17 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class PaperSummaryRequest(BaseModel):
+    conversation_id: str
+    refresh: bool = False
+
+
+class PaperComparisonRequest(BaseModel):
+    conversation_id: str
+    ranks: List[int] = Field(min_length=2, max_length=4)
+    question: Optional[str] = None
+
+
 # ─── Nested Data Models ──────────────────────────────────────────
 
 class PaperResult(BaseModel):
@@ -56,6 +67,26 @@ class ArtifactResult(BaseModel):
     url: Optional[str] = None
 
 
+class PaperArtifactDetail(ArtifactResult):
+    evidence_id: str
+    text: str
+    evidence_url: str
+
+
+class EvidenceDetail(BaseModel):
+    evidence_id: str
+    conversation_id: str
+    pmid: str
+    rank: int
+    title: str
+    text: str
+    content_type: str
+    section: Optional[str] = None
+    page_number: Optional[int] = None
+    pdf_available: bool
+    pdf_url: Optional[str] = None
+
+
 # ─── Response Models ─────────────────────────────────────────────
 # Field is serialized as "type" in JSON to match the frontend contract,
 # but accessed as "response_type" in Python to avoid shadowing the builtin.
@@ -95,6 +126,28 @@ class ErrorResponse(BaseModel):
     message: str
 
     model_config = {"populate_by_name": True}
+
+
+class PaperSummaryResponse(BaseModel):
+    rank: int
+    pmid: str
+    title: str
+    summary: str
+    cached: bool
+
+
+class PaperComparisonResponse(BaseModel):
+    comparison: str
+    ranks: List[int]
+    references: List[ReferenceResult]
+    artifacts: List[ArtifactResult] = Field(default_factory=list)
+
+
+class PaperArtifactListResponse(BaseModel):
+    pmid: str
+    rank: int
+    title: str
+    artifacts: List[PaperArtifactDetail]
 
 
 # ─── Conversation Lifecycle Models ───────────────────────────────

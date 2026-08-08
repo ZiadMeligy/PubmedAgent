@@ -15,6 +15,11 @@ def _safe_component(value: str) -> str:
     return cleaned.strip("._") or "unknown"
 
 
+def get_paper_artifact_dir(pmid: str) -> Path:
+    """Return the traversal-safe artifact directory for a paper."""
+    return ARTIFACT_ROOT / _safe_component(pmid)
+
+
 def _nearby_context(page: fitz.Page, rect: fitz.Rect | None, max_chars: int = 1800) -> str:
     blocks = page.get_text("blocks")
     if not blocks:
@@ -54,7 +59,7 @@ def _markdown_table(rows: List[List[Any]]) -> str:
             for cell in row
         ]
         for row in rows
-        if row
+        if row and any(str(cell or "").strip() for cell in row)
     ]
     if not normalized:
         return ""
@@ -93,6 +98,61 @@ def _markdown_table_parts(rows: List[List[Any]], max_chars: int = 6000) -> List[
     return parts
 
 
+TABLE_CAPTION_PATTERN = re.compile(
+    r"(?im)^[ \t]*Table\s+(\d+[A-Za-z]?)\s*[:.]?\s*([^\n]*)$"
+)
+
+
+def _captioned_table_regions(
+    page: fitz.Page,
+    page_text: str,
+) -> List[Dict[str, Any]]:
+    """Locate individual caption-bounded regions for borderless tables."""
+    captions = []
+    for match in TABLE_CAPTION_PATTERN.finditer(page_text):
+        table_number = match.group(1)
+        label = " ".join(match.group(0).split())[:320]
+        rectangles = page.search_for(label)
+        if not rectangles:
+            continue
+        caption_rect = rectangles[0]
+        captions.append(
+            {
+                "number": table_number,
+                "label": label,
+                "match": match,
+                "rect": caption_rect,
+            }
+        )
+
+    for index, caption in enumerate(captions):
+        end_y = page.rect.y1 - 25
+        if index + 1 < len(captions):
+            end_y = min(end_y, captions[index + 1]["rect"].y0 - 1)
+
+        # Notes normally sit immediately below a table and provide a reliable
+        # lower boundary when this is the final table on a page.
+        for marker in ("Note:", "Notes:"):
+            for note_rect in page.search_for(marker):
+                if caption["rect"].y1 < note_rect.y0 < end_y:
+                    end_y = note_rect.y0
+                    break
+
+        caption["clip"] = fitz.Rect(
+            page.rect.x0 + 35,
+            caption["rect"].y1 + 1,
+            page.rect.x1 - 35,
+            max(caption["rect"].y1 + 2, end_y),
+        )
+        text_end = (
+            captions[index + 1]["match"].start()
+            if index + 1 < len(captions)
+            else len(page_text)
+        )
+        caption["raw_text"] = page_text[caption["match"].start():text_end].strip()
+    return captions
+
+
 def extract_pdf_structure(pdf_bytes: bytes, pmid: str) -> Dict[str, List[Dict]]:
     """
     Extract page text plus searchable table/figure artifacts.
@@ -101,7 +161,7 @@ def extract_pdf_structure(pdf_bytes: bytes, pmid: str) -> Dict[str, List[Dict]]:
     and nearby textual context.
     """
     safe_pmid = _safe_component(pmid)
-    paper_dir = ARTIFACT_ROOT / safe_pmid
+    paper_dir = get_paper_artifact_dir(pmid)
     paper_dir.mkdir(parents=True, exist_ok=True)
 
     pages: List[Dict] = []
@@ -116,7 +176,7 @@ def extract_pdf_structure(pdf_bytes: bytes, pmid: str) -> Dict[str, List[Dict]]:
             page_text = page.get_text("text").strip()
             pages.append({"page_number": page_number, "text": page_text})
 
-            tables_before_page = len(tables)
+            page_table_numbers = set()
             if hasattr(page, "find_tables"):
                 try:
                     found_tables = page.find_tables()
@@ -132,6 +192,12 @@ def extract_pdf_structure(pdf_bytes: bytes, pmid: str) -> Dict[str, List[Dict]]:
                             "table",
                             f"Table {table_index} on page {page_number}",
                         )
+                        number_match = re.search(
+                            r"(?i)\bTable\s+(\d+[A-Za-z]?)",
+                            label,
+                        )
+                        if number_match:
+                            page_table_numbers.add(number_match.group(1).lower())
                         for part_index, markdown in enumerate(markdown_parts, 1):
                             artifact_id = (
                                 f"{safe_pmid}_table_p{page_number}_{table_index}"
@@ -160,34 +226,85 @@ def extract_pdf_structure(pdf_bytes: bytes, pmid: str) -> Dict[str, List[Dict]]:
                     # Table detection is best-effort; text indexing must continue.
                     pass
 
-            # Many journal tables have no ruling lines, so find_tables() cannot
-            # detect them. Preserve captioned table text as structured evidence
-            # rather than relying only on a generic page chunk.
-            if len(tables) == tables_before_page:
-                caption_match = re.search(
-                    r"(?im)^\s*Table\s+\d+[A-Za-z]?\s*$",
-                    page_text,
-                )
-                if caption_match:
-                    table_text = page_text[caption_match.start():].strip()
-                    lines = [line.strip() for line in table_text.splitlines() if line.strip()]
-                    label = " ".join(lines[:2])[:320] or (
-                        f"Table on page {page_number}"
-                    )
+            # Borderless journal tables are often invisible to line-based table
+            # detection. Detect every full caption, bound its region by the next
+            # caption / note, then use text alignment to reconstruct the cells.
+            for caption in _captioned_table_regions(page, page_text):
+                table_number = str(caption["number"])
+                if table_number.lower() in page_table_numbers:
+                    continue
+
+                rows = []
+                if hasattr(page, "find_tables"):
+                    try:
+                        candidates = page.find_tables(
+                            clip=caption["clip"],
+                            vertical_strategy="text",
+                            horizontal_strategy="text",
+                        ).tables
+                        candidates = [
+                            table
+                            for table in candidates
+                            if table.row_count >= 2 and table.col_count >= 2
+                        ]
+                        if candidates:
+                            best = max(
+                                candidates,
+                                key=lambda table: table.row_count * table.col_count,
+                            )
+                            rows = best.extract()
+                    except Exception:
+                        rows = []
+
+                label = caption["label"]
+                context = str(caption["raw_text"])[:1800]
+                markdown_parts = _markdown_table_parts(rows) if rows else []
+                if markdown_parts:
+                    for part_index, markdown in enumerate(markdown_parts, 1):
+                        part_label = (
+                            label
+                            if len(markdown_parts) == 1
+                            else f"{label} (part {part_index}/{len(markdown_parts)})"
+                        )
+                        tables.append(
+                            {
+                                "artifact_id": (
+                                    f"{safe_pmid}_table_caption_p{page_number}_"
+                                    f"{_safe_component(table_number)}_part{part_index}"
+                                ),
+                                "content_type": "table",
+                                "page_number": page_number,
+                                "label": part_label,
+                                "context": context,
+                                "text": (
+                                    f"{part_label}\n"
+                                    f"Paper PMID: {pmid}; PDF page: {page_number}\n"
+                                    f"Nearby context: {context}\n\n{markdown}"
+                                ),
+                            }
+                        )
+                else:
+                    # Even if cell reconstruction fails, make each captioned
+                    # table independently retrievable instead of losing the page.
+                    raw_text = str(caption["raw_text"])[:6000]
                     tables.append(
                         {
-                            "artifact_id": f"{safe_pmid}_table_text_p{page_number}",
+                            "artifact_id": (
+                                f"{safe_pmid}_table_text_p{page_number}_"
+                                f"{_safe_component(table_number)}"
+                            ),
                             "content_type": "table",
                             "page_number": page_number,
                             "label": label,
-                            "context": table_text[:1800],
+                            "context": context,
                             "text": (
                                 f"{label}\n"
                                 f"Paper PMID: {pmid}; PDF page: {page_number}\n\n"
-                                f"{table_text[:6000]}"
+                                f"{raw_text}"
                             ),
                         }
                     )
+                page_table_numbers.add(table_number.lower())
 
             for image_index, image_info in enumerate(page.get_images(full=True), 1):
                 xref = image_info[0]

@@ -3,9 +3,10 @@
 import { Paper } from '@/types';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, Calendar, Quote, TrendingUp, BarChart3, FileText, Loader2, CheckCircle2, XCircle, Download, Database } from 'lucide-react';
+import { ExternalLink, Calendar, Quote, TrendingUp, BarChart3, FileText, Loader2, CheckCircle2, XCircle, Download, Database, RefreshCw } from 'lucide-react';
 import { useConversationStore } from '@/lib/store';
 import { useState, useRef, useEffect } from 'react';
+import { PaperTools } from './PaperTools';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -18,6 +19,7 @@ interface PaperCardProps {
 export function PaperCard({ paper, conversationId, messageId }: PaperCardProps) {
   const { updateMessage } = useConversationStore();
   const eventSourceRef = useRef<EventSource | null>(null);
+  const isIndexed = paper.indexStatus === 'INDEXED' || paper.indexStatus === 'ALREADY_INDEXED';
 
   // Cleanup on unmount
   useEffect(() => {
@@ -195,6 +197,20 @@ export function PaperCard({ paper, conversationId, messageId }: PaperCardProps) 
               )}
             </div>
           </div>
+        )}
+        {isIndexed && conversationId && (
+          <>
+            <PaperTools paper={paper} conversationId={conversationId} />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full text-xs text-muted-foreground"
+              onClick={handleAddFullText}
+            >
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              Refresh paper index
+            </Button>
+          </>
         )}
         <Button
           variant="outline"

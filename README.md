@@ -12,13 +12,16 @@ By orchestrating multiple specialized LLM sub-agents (via LangGraph) and utilizi
 - **Natural Language to Boolean**: Converts complex clinical cases into highly specific PubMed Boolean queries.
 - **Reranker & Grader**: Synthesizes abstract content and rigorously scores papers based on Semantic Similarity, Recency, Citation Count, and Journal Quality (SJR index).
 - **Rank-Locked Q&A Agent**: Resolves ordinal references against the latest composite-score order, filters Qdrant by PMID, reranks with `BAAI/bge-reranker-base`, and cites the requested papers.
-- **Cross-Paper Comparisons**: Produces evidence-grounded Markdown tables for questions comparing selected ranked papers.
+- **Structured Cross-Paper Comparisons**: Uses fixed comparison fields, immutable ranks, and server-validated evidence IDs to build evidence-grounded Markdown tables.
+- **Dedicated Paper Summaries**: Summarizes an indexed paper from a bounded evidence set and caches the result for reuse.
 
 ### 📄 On-Demand Full-Text Ingestion & PDF Proxy
 - **Multi-Provider Availability Checking**: Falls back across 4 major APIs (Europe PMC, NCBI PMC, Unpaywall, Crossref) to locate free Open Access PDFs.
 - **Proxy Downloading**: Downloads PDFs securely through the backend without exposing the frontend to CORS limitations or publisher firewalls.
 - **Multimodal PDF Ingestion**: Extracts page-aware text, structured tables, figures, captions, and nearby context with `PyMuPDF`, then stores searchable evidence in Qdrant.
 - **Figure Retrieval**: Relevant extracted figures can be passed to the vision-capable QA model and rendered back in the chat with paper-rank and PDF-page context.
+- **Artifact Browser**: Every indexed paper exposes its extracted tables and figures in a page-aware browser.
+- **Exact Evidence Links**: Inline citations open the retained source PDF at the cited page with the retrieved evidence highlighted alongside it.
 - **Hybrid LLM Retrieval**: Once a paper is indexed, future clinical queries pull deep context from *both* the PubMed abstracts and the global full-text database.
 
 ### ⚡ Responsive Frontend
@@ -70,8 +73,12 @@ Follow these steps to deploy both the backend and frontend locally.
    ```env
    GROQ_API_KEY="your_groq_api_key_here"
    GROQ_MODEL="qwen/qwen3.6-27b"
+   JWT_SECRET_KEY="generate-a-long-random-deployment-secret"
    TOKENIZERS_PARALLELISM="false"
    ```
+   If `JWT_SECRET_KEY` is omitted during local development, the app creates a
+   private persistent secret in `data/.jwt_secret`. Hospital deployments should
+   supply the value through their approved secret manager.
 
 5. **Start the FastAPI Backend**:
    ```bash
@@ -108,6 +115,9 @@ Follow these steps to deploy both the backend and frontend locally.
 - Start a new conversation and input a clinical scenario (e.g., *"What is the evidence for omitting lymph nodes in prostate cancer radiotherapy for a patient with Gleason score 8?"*).
 - Click **Check Full Text Availability** to locate PDFs.
 - Click **Add to DB** to ingest the PDF directly into the Qdrant Vector database for future deep-retrieval QA!
+- Once indexed, use **Summarize paper** or **Tables & figures** on that paper card.
+- Ask to compare two to four ranked papers to use the structured comparison service.
+- Click an inline answer citation to open the exact evidence viewer and PDF page.
 
 ---
 

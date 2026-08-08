@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils';
 export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
   const token = useAuthStore((s) => s.token);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const router = useRouter();
 
   const {
@@ -31,14 +31,10 @@ export default function Home() {
   const { sendMessage, error, retry } = useChat(currentConversationId);
 
   useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (isHydrated && !token) {
+    if (hasHydrated && !token) {
       router.push('/login');
     }
-  }, [isHydrated, token, router]);
+  }, [hasHydrated, token, router]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -69,7 +65,7 @@ export default function Home() {
     }
   };
 
-  if (!isHydrated || !token) return null;
+  if (!hasHydrated || !token) return null;
 
   return (
     <div className="flex h-screen bg-background text-foreground">

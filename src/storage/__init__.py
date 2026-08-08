@@ -209,6 +209,7 @@ class QdrantVectorStore:
         *,
         conversation_id: Optional[str] = None,
         pmids: Optional[List[str]] = None,
+        content_types: Optional[List[str]] = None,
         limit: int = 512,
     ) -> List[Dict]:
         """Return payloads for a scoped lexical/hybrid retrieval pass."""
@@ -225,6 +226,13 @@ class QdrantVectorStore:
                 FieldCondition(
                     key="pmid",
                     match=MatchAny(any=[str(pmid) for pmid in pmids]),
+                )
+            )
+        if content_types:
+            conditions.append(
+                FieldCondition(
+                    key="content_type",
+                    match=MatchAny(any=content_types),
                 )
             )
         query_filter = Filter(must=conditions) if conditions else None

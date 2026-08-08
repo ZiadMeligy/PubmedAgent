@@ -33,3 +33,38 @@ export interface PaperArtifact {
   page_number?: number;
   url?: string;
 }
+
+export interface PaperArtifactDetail extends PaperArtifact {
+  evidence_id: string;
+  text: string;
+  evidence_url: string;
+}
+
+export interface PaperArtifactList {
+  pmid: string;
+  rank: number;
+  title: string;
+  artifacts: PaperArtifactDetail[];
+}
+
+export interface PaperSummary {
+  rank: number;
+  pmid: string;
+  title: string;
+  summary: string;
+  cached: boolean;
+}
+
+export interface EvidenceDetail {
+  evidence_id: string;
+  conversation_id: string;
+  pmid: string;
+  rank: number;
+  title: string;
+  text: string;
+  content_type: string;
+  section?: string;
+  page_number?: number;
+  pdf_available: boolean;
+  pdf_url?: string;
+}

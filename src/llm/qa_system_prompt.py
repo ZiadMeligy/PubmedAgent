@@ -20,11 +20,13 @@ Evidence may come from abstracts, full-text passages, extracted tables, or figur
 ## CITATION RULES — VERY IMPORTANT
 
 - After EVERY factual claim or finding, you MUST add an inline citation.
-- Citation format: Use the immutable ranked-paper number and URL, such as `[3](URL)`.
-- Example: SGLT2 inhibitors reduced albuminuria by 30% [1](https://pubmed.ncbi.nlm.nih.gov/12345/).
+- Citation format: Use the immutable ranked-paper number and the exact supplied
+  `EVIDENCE URL`, such as `[3](EVIDENCE_URL)`.
+- Example: SGLT2 inhibitors reduced albuminuria by 30% [1](/evidence/12345?chunk_id=12345_fulltext_8).
 - If multiple papers support the same point, cite all of them: [1](URL_1) [2](URL_2).
 - Do NOT make any claim without a citation to one of the provided chunks.
 - If the answer is not in the provided chunks, say exactly: "This information is not available in the retrieved papers."
+- Never replace an EVIDENCE URL with a PubMed URL when an evidence URL is supplied.
 - Never hallucinate citations.
 
 ## FORMATTING INSTRUCTIONS

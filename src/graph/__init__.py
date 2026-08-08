@@ -16,6 +16,7 @@ from src.retrieval.search import hierarchical_retrieve
 from src.formatting import format_ranked_papers
 from src.storage.paper_manager import get_paper_store
 from src.services.paper_store import get_conversation_paper_store
+from src.services.paper_qa_service import compare_ranked_papers
 from src.nlp.scispacy_extractor import extract_entities
 from src.nlp.entity_ranking import rank_entity_importance
 from src.qa.multimodal import build_qa_message
@@ -193,6 +194,30 @@ def qa_call(state: AgentState):
             "latest_references": [],
             "latest_artifacts": [],
         }
+
+    comparison_requested = (
+        len(selection.papers) > 1
+        and any(
+            term in question.lower()
+            for term in ("compare", "comparison", "versus", " vs ", "difference", "similar")
+        )
+    )
+    if comparison_requested and 2 <= len(selection.papers) <= 4:
+        try:
+            structured = compare_ranked_papers(
+                conversation_id,
+                [int(paper.get("rank")) for paper in selection.papers],
+                question,
+            )
+            return {
+                "messages": [AIMessage(content=structured["comparison"])],
+                "response_type": "qa",
+                "latest_references": structured["references"],
+                "latest_artifacts": structured["artifacts"],
+            }
+        except Exception as exc:
+            # Keep ordinary RAG available if a provider fails to return valid JSON.
+            logger.warning("Structured comparison failed; using QA fallback: %s", exc)
     
     # Query rewriting is constrained to the deterministically selected papers.
     search_query = question
@@ -244,13 +269,6 @@ Do NOT answer the question. Just output the rewritten query string and nothing e
     for chunk in retrieved_chunks:
         chunk["rank"] = rank_by_pmid.get(str(chunk.get("pmid")))
 
-    comparison_requested = (
-        len(selection.papers) > 1
-        and any(
-            term in question.lower()
-            for term in ("compare", "comparison", "versus", " vs ", "difference", "similar")
-        )
-    )
     balance_pmids = selection.pmids if selection.explicit or comparison_requested else None
     per_paper_k = 6 if len(selection.papers) <= 2 else 4
     reranked_chunks = rerank_chunks(
@@ -261,7 +279,10 @@ Do NOT answer the question. Just output the rewritten query string and nothing e
     )
     
     # Format chunks for Q&A model
-    context = format_chunks_for_qa(reranked_chunks)
+    context = format_chunks_for_qa(
+        reranked_chunks,
+        conversation_id=conversation_id,
+    )
     
     if os.environ.get("DEBUG_QA_CONTEXT", "").lower() == "true":
         logger.debug("QA CONTEXT being sent to model:")

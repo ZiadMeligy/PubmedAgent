@@ -94,6 +94,17 @@ class ConversationRepository:
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
                 )
             ''')
+
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS paper_summaries (
+                    conversation_id TEXT NOT NULL,
+                    pmid TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (conversation_id, pmid),
+                    FOREIGN KEY(conversation_id) REFERENCES conversations(id)
+                )
+            ''')
             
             try:
                 conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT")
@@ -201,6 +212,7 @@ class ConversationRepository:
     def delete_conversation(self, conversation_id: str) -> None:
         """Delete a conversation and its messages."""
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM paper_summaries WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM ranked_papers WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
             conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
@@ -259,6 +271,36 @@ class ConversationRepository:
             conn.execute(
                 "DELETE FROM ranked_papers WHERE conversation_id = ?",
                 (conversation_id,),
+            )
+            conn.commit()
+
+    def get_paper_summary(self, conversation_id: str, pmid: str) -> Optional[str]:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT summary FROM paper_summaries
+                WHERE conversation_id = ? AND pmid = ?
+                """,
+                (conversation_id, str(pmid)),
+            ).fetchone()
+        return row[0] if row else None
+
+    def save_paper_summary(
+        self,
+        conversation_id: str,
+        pmid: str,
+        summary: str,
+    ) -> None:
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO paper_summaries (conversation_id, pmid, summary, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(conversation_id, pmid)
+                DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at
+                """,
+                (conversation_id, str(pmid), summary, now),
             )
             conn.commit()
 
