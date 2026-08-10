@@ -1,19 +1,30 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+import logging
 from typing import List
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from src.config import EMBEDDING_MODEL_NAME
 
+logger = logging.getLogger(__name__)
+
 # -------------------------
 # BGE MODEL SETUP
 # -------------------------
-embedding_model = SentenceTransformer(
-    EMBEDDING_MODEL_NAME,
-    local_files_only=True,
-)
+try:
+    # Avoid an internet metadata request on every backend restart.
+    embedding_model = SentenceTransformer(
+        EMBEDDING_MODEL_NAME,
+        local_files_only=True,
+    )
+except Exception:
+    logger.info(
+        "Embedding model %s is not cached; downloading it once...",
+        EMBEDDING_MODEL_NAME,
+    )
+    embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 
 # -------------------------

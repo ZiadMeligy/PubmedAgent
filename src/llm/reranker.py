@@ -42,15 +42,23 @@ def get_evidence_url(chunk: Dict, conversation_id: Optional[str]) -> str:
 
 
 def _get_cross_encoder():
-    """Load the cached biomedical-capable reranker lazily."""
+    """Load the biomedical reranker lazily, downloading it when first needed."""
     global _cross_encoder, _cross_encoder_unavailable
     if _cross_encoder is None and not _cross_encoder_unavailable:
         try:
-            _cross_encoder = CrossEncoder(
-                "BAAI/bge-reranker-base",
-                local_files_only=True,
-                max_length=512,
-            )
+            try:
+                # Prefer the cache so restarts never require Hugging Face.
+                _cross_encoder = CrossEncoder(
+                    "BAAI/bge-reranker-base",
+                    local_files_only=True,
+                    max_length=512,
+                )
+            except Exception:
+                logger.info("Reranker is not cached; downloading it once...")
+                _cross_encoder = CrossEncoder(
+                    "BAAI/bge-reranker-base",
+                    max_length=512,
+                )
         except Exception as exc:
             _cross_encoder_unavailable = True
             logger.warning("Cross-encoder unavailable; using embedding fallback: %s", exc)

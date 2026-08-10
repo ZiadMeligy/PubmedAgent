@@ -1,0 +1,39 @@
+# PubMedAgent backend dependencies
+# Tested with Python 3.11. Install with: python -m pip install -r requirements.txt
+
+# API and authentication
+fastapi==0.136.3
+uvicorn[standard]==0.46.0
+pydantic==2.13.4
+python-dotenv==1.2.2
+python-jose[cryptography]==3.5.0
+bcrypt==5.0.0
+httpx==0.28.1
+requests==2.33.1
+
+# Agent graph and LLM providers
+langchain==1.2.18
+langchain-core==1.3.3
+langchain-groq==1.1.2
+langchain-ollama==1.1.0
+langchain-text-splitters==1.1.2
+langgraph==1.1.10
+
+# Retrieval, embeddings, and vector storage
+numpy==1.26.4
+scikit-learn==1.8.0
+sentence-transformers==5.4.1
+transformers==5.8.0
+torch==2.11.0
+qdrant-client==1.18.0
+
+# Biomedical search and entity extraction
+pymed==0.8.9
+spacy==3.7.5
+scispacy==0.6.2
+# The code falls back safely when this optional SciSpaCy model is unavailable.
+# This is the model version currently published by the SciSpaCy project.
+en_core_sci_sm @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_sm-0.5.4.tar.gz
+
+# PDF text, table, and figure extraction
+PyMuPDF==1.27.2.3
