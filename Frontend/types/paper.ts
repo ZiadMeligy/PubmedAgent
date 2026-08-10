@@ -2,6 +2,7 @@ export interface Paper {
   rank: number;
   title: string;
   url: string;
+  journal?: string;
   publication_year: number;
   citation_count: number;
   similarity_score: number;
@@ -18,4 +19,52 @@ export interface Reference {
   title: string;
   pmid: string;
   url: string;
+  year?: number;
+  rank?: number;
+}
+
+export interface PaperArtifact {
+  artifact_id: string;
+  type: 'image' | 'table' | string;
+  pmid: string;
+  rank?: number;
+  title: string;
+  label: string;
+  page_number?: number;
+  url?: string;
+}
+
+export interface PaperArtifactDetail extends PaperArtifact {
+  evidence_id: string;
+  text: string;
+  evidence_url: string;
+}
+
+export interface PaperArtifactList {
+  pmid: string;
+  rank: number;
+  title: string;
+  artifacts: PaperArtifactDetail[];
+}
+
+export interface PaperSummary {
+  rank: number;
+  pmid: string;
+  title: string;
+  summary: string;
+  cached: boolean;
+}
+
+export interface EvidenceDetail {
+  evidence_id: string;
+  conversation_id: string;
+  pmid: string;
+  rank: number;
+  title: string;
+  text: string;
+  content_type: string;
+  section?: string;
+  page_number?: number;
+  pdf_available: boolean;
+  pdf_url?: string;
 }

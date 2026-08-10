@@ -7,9 +7,10 @@ import logging
 from langchain_core.messages import HumanMessage, AIMessage
 from src.graph.builder import compiled_graph
 from src.services.conversation_manager import get_conversation_manager
+from src.services.paper_store import get_conversation_paper_store
 from src.api.schemas import (
     PaperSearchResponse, PaperResult,
-    QAResponse, ReferenceResult,
+    QAResponse, ReferenceResult, ArtifactResult,
     ChatResponse, ErrorResponse,
 )
 
@@ -20,6 +21,7 @@ class ChatService:
 
     def __init__(self):
         self.conversation_manager = get_conversation_manager()
+        self.paper_store = get_conversation_paper_store()
 
     def chat(self, conversation_id: str, user_message: str, user_id: str = None):
         """
@@ -53,8 +55,11 @@ class ChatService:
                 "papers_found": papers_found,
                 "conversation_id": conversation_id,
                 "response_type": "chat",
-                "latest_papers": [],
+                # The latest composite-score order is durable and is the only
+                # rank namespace used by post-search QA.
+                "latest_papers": self.paper_store.get_papers(conversation_id),
                 "latest_references": [],
+                "latest_artifacts": [],
                 "alpha": prefs.get("alpha", 0.8),
                 "beta": prefs.get("beta", 0.1),
                 "gamma": prefs.get("gamma", 0.1),
@@ -141,10 +146,26 @@ class ChatService:
                     pmid=r.get("pmid", ""),
                     url=r.get("url", ""),
                     year=r.get("year"),
+                    rank=r.get("rank"),
+                )
+            )
+        artifacts = []
+        for artifact in result.get("latest_artifacts", []):
+            artifacts.append(
+                ArtifactResult(
+                    artifact_id=artifact.get("artifact_id", ""),
+                    type=artifact.get("type", ""),
+                    pmid=artifact.get("pmid", ""),
+                    rank=artifact.get("rank"),
+                    title=artifact.get("title", ""),
+                    label=artifact.get("label", ""),
+                    page_number=artifact.get("page_number"),
+                    url=artifact.get("url"),
                 )
             )
         return QAResponse(
             conversation_id=conversation_id,
             response=text_response,
             references=refs,
+            artifacts=artifacts,
         )

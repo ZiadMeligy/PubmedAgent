@@ -16,8 +16,11 @@ from src.retrieval.search import hierarchical_retrieve
 from src.formatting import format_ranked_papers
 from src.storage.paper_manager import get_paper_store
 from src.services.paper_store import get_conversation_paper_store
+from src.services.paper_qa_service import compare_ranked_papers
 from src.nlp.scispacy_extractor import extract_entities
 from src.nlp.entity_ranking import rank_entity_importance
+from src.qa.multimodal import build_qa_message
+from src.qa.paper_selection import resolve_paper_selection
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ class AgentState(TypedDict):
     response_type: str
     latest_papers: list
     latest_references: list
+    latest_artifacts: list
     alpha: float
     beta: float
     gamma: float
@@ -159,22 +163,81 @@ def qa_call(state: AgentState):
         question = messages[-2].content if hasattr(messages[-2], 'content') else ""
         
     latest_papers = state.get("latest_papers", [])
+    selection = resolve_paper_selection(question, latest_papers)
+
+    if selection.explicit and selection.missing_ranks:
+        available = ", ".join(str(p.get("rank")) for p in latest_papers) or "none"
+        missing = ", ".join(str(rank) for rank in selection.missing_ranks)
+        response = AIMessage(
+            content=(
+                f"Ranked paper {missing} is not available in the latest search result. "
+                f"Available ranks: {available}."
+            )
+        )
+        return {
+            "messages": [response],
+            "response_type": "qa",
+            "latest_references": [],
+            "latest_artifacts": [],
+        }
+
+    if not selection.papers:
+        response = AIMessage(
+            content=(
+                "There is no active ranked-paper set for this conversation. "
+                "Please run a PubMed search first."
+            )
+        )
+        return {
+            "messages": [response],
+            "response_type": "qa",
+            "latest_references": [],
+            "latest_artifacts": [],
+        }
+
+    comparison_requested = (
+        len(selection.papers) > 1
+        and any(
+            term in question.lower()
+            for term in ("compare", "comparison", "versus", " vs ", "difference", "similar")
+        )
+    )
+    if comparison_requested and 2 <= len(selection.papers) <= 4:
+        try:
+            structured = compare_ranked_papers(
+                conversation_id,
+                [int(paper.get("rank")) for paper in selection.papers],
+                question,
+            )
+            return {
+                "messages": [AIMessage(content=structured["comparison"])],
+                "response_type": "qa",
+                "latest_references": structured["references"],
+                "latest_artifacts": structured["artifacts"],
+            }
+        except Exception as exc:
+            # Keep ordinary RAG available if a provider fails to return valid JSON.
+            logger.warning("Structured comparison failed; using QA fallback: %s", exc)
     
-    # --- NEW: QUERY REWRITING ---
+    # Query rewriting is constrained to the deterministically selected papers.
     search_query = question
-    if question and latest_papers:
-        # Build paper list string
-        paper_list_str = "\\n".join([f"{i+1}. {p.get('title', 'Unknown Title')}" for i, p in enumerate(latest_papers)])
+    if question:
+        paper_list_str = "\n".join(
+            f"Rank {paper.get('rank')}: {paper.get('title', 'Unknown Title')} "
+            f"(PMID {paper.get('pubmed_id') or paper.get('pmid')})"
+            for paper in selection.papers
+        )
         
         rewrite_prompt = f"""You are an expert search query rewriter. 
 The user is asking a question in a conversational context about some retrieved medical papers.
-Here are the titles of the currently retrieved papers in order (Rank 1 to N):
+The following paper selection is fixed and must not be changed:
 {paper_list_str}
 
 User's raw question: {question}
 
-Rewrite this question into a standalone semantic search query that can be used to query a vector database containing the abstracts of these papers. 
-If the user refers to "the first paper", "paper 2", "the last one", etc., replace that reference with the actual title of the corresponding paper from the list above to ensure accurate semantic matching. 
+Rewrite this into one concise standalone evidence-retrieval query.
+Preserve comparison intent, outcomes, methods, populations, tables, and figures.
+Replace ordinal references with the exact selected paper titles.
 Do NOT answer the question. Just output the rewritten query string and nothing else."""
         
         try:
@@ -188,17 +251,38 @@ Do NOT answer the question. Just output the rewritten query string and nothing e
         except Exception as e:
             logger.error(f"Failed to rewrite query: {e}")
             search_query = question
-    # --- END QUERY REWRITING ---
-    
-    # Retrieve relevant chunks from vector store for this conversation
+
+    # Exact PMID filtering happens inside Qdrant before semantic scoring.
     paper_store = get_paper_store()
-    retrieved_chunks = paper_store.search_for_answer(search_query, conversation_id=conversation_id, top_k=5)
-    
-    # Rerank the chunks using the rewritten query
-    reranked_chunks = rerank_chunks(search_query, retrieved_chunks, top_k=3)
+    retrieved_chunks = paper_store.search_for_answer(
+        search_query,
+        conversation_id=conversation_id,
+        top_k=8,
+        pmids=selection.pmids,
+        lexical_query=question,
+    )
+
+    rank_by_pmid = {
+        str(p.get("pubmed_id") or p.get("pmid")): p.get("rank")
+        for p in selection.papers
+    }
+    for chunk in retrieved_chunks:
+        chunk["rank"] = rank_by_pmid.get(str(chunk.get("pmid")))
+
+    balance_pmids = selection.pmids if selection.explicit or comparison_requested else None
+    per_paper_k = 6 if len(selection.papers) <= 2 else 4
+    reranked_chunks = rerank_chunks(
+        search_query,
+        retrieved_chunks,
+        top_k=per_paper_k if balance_pmids else 10,
+        selected_pmids=balance_pmids,
+    )
     
     # Format chunks for Q&A model
-    context = format_chunks_for_qa(reranked_chunks)
+    context = format_chunks_for_qa(
+        reranked_chunks,
+        conversation_id=conversation_id,
+    )
     
     if os.environ.get("DEBUG_QA_CONTEXT", "").lower() == "true":
         logger.debug("QA CONTEXT being sent to model:")
@@ -211,7 +295,7 @@ Do NOT answer the question. Just output the rewritten query string and nothing e
     qa_system_prompt = get_qa_system_prompt()
     qa_messages = [
         qa_system_prompt,
-        HumanMessage(content=f"CONTEXT:\n{context}\n\nQUESTION: {search_query}")
+        build_qa_message(context, question, reranked_chunks),
     ]
     
     # Invoke Q&A model
@@ -228,11 +312,33 @@ Do NOT answer the question. Just output the rewritten query string and nothing e
                 "title": c.get('title', 'Unknown'),
                 "pmid": pmid,
                 "url": c.get('url') or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-                "year": c.get('year')
+                "year": c.get('year'),
+                "rank": c.get("rank"),
             })
+
+    artifacts = []
+    seen_artifacts = set()
+    for chunk in reranked_chunks:
+        artifact_id = chunk.get("artifact_id")
+        if not artifact_id or artifact_id in seen_artifacts:
+            continue
+        seen_artifacts.add(artifact_id)
+        artifacts.append(
+            {
+                "artifact_id": artifact_id,
+                "type": chunk.get("content_type"),
+                "pmid": str(chunk.get("pmid") or ""),
+                "rank": chunk.get("rank"),
+                "title": chunk.get("title") or "",
+                "label": chunk.get("label") or chunk.get("section") or "Paper artifact",
+                "page_number": chunk.get("page_number"),
+                "url": chunk.get("artifact_url"),
+            }
+        )
     
     return {
         "messages": [response],
         "response_type": "qa",
-        "latest_references": references
+        "latest_references": references,
+        "latest_artifacts": artifacts,
     }

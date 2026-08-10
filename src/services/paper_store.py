@@ -1,30 +1,23 @@
-"""
-Manages persistent storage of retrieved paper metadata per conversation.
-Allows referencing retrieved papers without querying the vector database.
-"""
+"""Persistent ranked-paper metadata for post-search QA."""
 
-from typing import Dict, List, Any
+from typing import List, Dict, Any
+from src.storage.conversation_repository import get_conversation_repository
 
 class ConversationPaperStore:
     
     def __init__(self):
-        # Maps conversation_id to list of paper dicts
-        self.papers: Dict[str, List[Dict[str, Any]]] = {}
+        self.repo = get_conversation_repository()
         
     def save_papers(self, conversation_id: str, papers: List[Dict[str, Any]]) -> None:
-        """Save retrieved papers for a conversation."""
-        if conversation_id not in self.papers:
-            self.papers[conversation_id] = []
-        self.papers[conversation_id].extend(papers)
+        """Replace the active ranked set for a conversation."""
+        self.repo.save_ranked_papers(conversation_id, papers)
         
     def get_papers(self, conversation_id: str) -> List[Dict[str, Any]]:
-        """Get saved papers for a conversation."""
-        return self.papers.get(conversation_id, [])
+        """Get the active ranked set, including stable 1-based ranks."""
+        return self.repo.get_ranked_papers(conversation_id)
         
     def clear_papers(self, conversation_id: str) -> None:
-        """Clear saved papers for a conversation."""
-        if conversation_id in self.papers:
-            del self.papers[conversation_id]
+        self.repo.clear_ranked_papers(conversation_id)
 
 # Global instance
 _paper_store = None

@@ -58,6 +58,7 @@ export function useChat(conversationId: string | null) {
       let assistantContent = '';
       let papers = undefined;
       let references = undefined;
+      let artifacts = undefined;
       let retrievalConfig = undefined;
 
       switch (response.type) {
@@ -72,6 +73,7 @@ export function useChat(conversationId: string | null) {
         case 'qa':
           assistantContent = response.response;
           references = response.references;
+          artifacts = response.artifacts;
           setLoading(true, 'Analyzing References...');
           break;
         case 'chat':
@@ -87,6 +89,7 @@ export function useChat(conversationId: string | null) {
         responseType: response.type,
         papers,
         references,
+        artifacts,
         retrievalConfig,
       };
 

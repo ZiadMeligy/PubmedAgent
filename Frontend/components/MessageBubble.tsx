@@ -25,6 +25,9 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [isAddingAll, setIsAddingAll] = useState(false);
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  // Raw HTML is intentionally not enabled in chat Markdown. Convert model-generated
+  // table cell breaks into a compact, safe separator before rendering instead.
+  const markdownContent = message.content.replace(/\s*<br\s*\/?>\s*/gi, ' · ');
 
   const handleAddAllToDB = () => {
     const targetConvId = conversationId || currentConversationId;
@@ -169,7 +172,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
     >
       <div
         className={cn(
-          'max-w-[85%] md:max-w-[75%] rounded-2xl px-4 py-3',
+          'min-w-0 max-w-[85%] overflow-hidden rounded-2xl px-4 py-3 md:max-w-[75%]',
           isUser
             ? 'bg-primary text-primary-foreground rounded-br-md'
             : 'bg-muted rounded-bl-md'
@@ -178,7 +181,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
         {isUser ? (
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         ) : (
-          <div className="space-y-3">
+          <div className="min-w-0 max-w-full space-y-3">
             {message.retrievalConfig && (
               <RetrievalConfigCard 
                 params={[
@@ -190,10 +193,39 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                 minimumSjr={message.retrievalConfig.minimum_sjr}
               />
             )}
-            <div className="prose prose-sm dark:prose-invert max-w-none">
+            <div className="prose prose-sm min-w-0 max-w-full overflow-hidden dark:prose-invert">
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}
                 components={{
+                  table: ({ node, ...props }) => (
+                    <div className="not-prose my-4 w-full max-w-full overflow-x-auto rounded-lg border border-border bg-background shadow-sm">
+                      <table
+                        {...props}
+                        className="m-0 w-full min-w-[720px] border-collapse text-left text-xs leading-5"
+                      />
+                    </div>
+                  ),
+                  thead: ({ node, ...props }) => (
+                    <thead {...props} className="bg-muted/70" />
+                  ),
+                  tbody: ({ node, ...props }) => (
+                    <tbody {...props} className="divide-y divide-border" />
+                  ),
+                  tr: ({ node, ...props }) => (
+                    <tr {...props} className="transition-colors hover:bg-muted/30" />
+                  ),
+                  th: ({ node, ...props }) => (
+                    <th
+                      {...props}
+                      className="whitespace-normal border-r border-border px-3 py-2.5 align-top font-semibold text-foreground last:border-r-0 [overflow-wrap:anywhere]"
+                    />
+                  ),
+                  td: ({ node, ...props }) => (
+                    <td
+                      {...props}
+                      className="whitespace-normal border-r border-border px-3 py-2.5 align-top text-foreground/85 last:border-r-0 [overflow-wrap:anywhere]"
+                    />
+                  ),
                   a: ({ node, ...props }) => {
                     // Extract text safely from children
                     let childrenText = "";
@@ -227,12 +259,50 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                         className="text-primary hover:underline font-medium break-words" 
                       />
                     );
-                  }
+                  },
+                  img: ({ node, src, alt, ...props }) => {
+                    const resolvedSrc = src?.startsWith('/')
+                      ? `${API_BASE_URL}${src}`
+                      : src;
+                    return (
+                      <img
+                        {...props}
+                        src={resolvedSrc}
+                        alt={alt || 'Paper figure'}
+                        className="my-3 max-h-[32rem] w-auto rounded-lg border bg-white object-contain"
+                        loading="lazy"
+                      />
+                    );
+                  },
                 }}
               >
-                {message.content}
+                {markdownContent}
               </ReactMarkdown>
             </div>
+            {message.artifacts?.some(artifact => artifact.type === 'image' && artifact.url) && (
+              <div className="not-prose grid grid-cols-1 gap-3 md:grid-cols-2">
+                {message.artifacts
+                  .filter(artifact => artifact.type === 'image' && artifact.url)
+                  .map(artifact => (
+                    <figure key={artifact.artifact_id} className="overflow-hidden rounded-lg border bg-background">
+                      <img
+                        src={artifact.url?.startsWith('/') ? `${API_BASE_URL}${artifact.url}` : artifact.url}
+                        alt={artifact.label}
+                        className="max-h-80 w-full bg-white object-contain"
+                        loading="lazy"
+                      />
+                      <figcaption className="px-3 py-2 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          Ranked paper #{artifact.rank ?? '?'}
+                        </span>
+                        {' · '}
+                        {artifact.label}
+                        {artifact.page_number ? ` · PDF page ${artifact.page_number}` : ''}
+                      </figcaption>
+                    </figure>
+                  ))}
+              </div>
+            )}
             {message.papers && message.papers.length > 0 && (
               <div className="mt-4 not-prose">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-3 mb-3">
@@ -240,7 +310,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
                     <PaperCard 
                       key={paper.rank} 
                       paper={paper} 
-                      conversationId={conversationId || currentConversationId}
+                      conversationId={conversationId || currentConversationId || undefined}
                       messageId={message.id}
                     />
                   ))}

@@ -2,12 +2,75 @@
 Reranker for retrieved chunks using semantic similarity and relevance scoring.
 """
 
-from typing import List, Dict
+import logging
+import hashlib
+from typing import List, Dict, Optional
+from urllib.parse import quote
 from src.embeddings import get_embeddings, compute_similarity
-import numpy as np
+from sentence_transformers import CrossEncoder
+
+logger = logging.getLogger(__name__)
+
+_cross_encoder = None
+_cross_encoder_unavailable = False
 
 
-def rerank_chunks(query: str, chunks: List[Dict], top_k: int = 3) -> List[Dict]:
+def get_evidence_id(chunk: Dict) -> str:
+    """Return a stable identifier suitable for an evidence link."""
+    existing = chunk.get("chunk_id") or chunk.get("artifact_id")
+    if existing:
+        return str(existing)
+    digest = hashlib.sha1(
+        (
+            str(chunk.get("pmid") or "")
+            + "\n"
+            + str(chunk.get("text") or "")
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{chunk.get('pmid', 'unknown')}_evidence_{digest}"
+
+
+def get_evidence_url(chunk: Dict, conversation_id: Optional[str]) -> str:
+    pmid = quote(str(chunk.get("pmid") or "unknown"), safe="")
+    evidence_id = quote(get_evidence_id(chunk), safe="")
+    params = [f"chunk_id={evidence_id}"]
+    if conversation_id:
+        params.append(f"conversation_id={quote(str(conversation_id), safe='')}")
+    if chunk.get("page_number"):
+        params.append(f"page={int(chunk['page_number'])}")
+    return f"/evidence/{pmid}?{'&'.join(params)}"
+
+
+def _get_cross_encoder():
+    """Load the biomedical reranker lazily, downloading it when first needed."""
+    global _cross_encoder, _cross_encoder_unavailable
+    if _cross_encoder is None and not _cross_encoder_unavailable:
+        try:
+            try:
+                # Prefer the cache so restarts never require Hugging Face.
+                _cross_encoder = CrossEncoder(
+                    "BAAI/bge-reranker-base",
+                    local_files_only=True,
+                    max_length=512,
+                )
+            except Exception:
+                logger.info("Reranker is not cached; downloading it once...")
+                _cross_encoder = CrossEncoder(
+                    "BAAI/bge-reranker-base",
+                    max_length=512,
+                )
+        except Exception as exc:
+            _cross_encoder_unavailable = True
+            logger.warning("Cross-encoder unavailable; using embedding fallback: %s", exc)
+    return _cross_encoder
+
+
+def rerank_chunks(
+    query: str,
+    chunks: List[Dict],
+    top_k: int = 6,
+    selected_pmids: Optional[List[str]] = None,
+) -> List[Dict]:
     """
     Rerank retrieved chunks by semantic similarity to query.
     
@@ -22,25 +85,57 @@ def rerank_chunks(query: str, chunks: List[Dict], top_k: int = 3) -> List[Dict]:
     if not chunks:
         return []
     
-    # Get embeddings
-    query_embedding = get_embeddings([query], use_instruction=True)[0]
-    chunk_texts = [chunk['text'] for chunk in chunks]
-    chunk_embeddings = get_embeddings(chunk_texts, use_instruction=False)
-    
-    # Compute similarities
-    similarities = compute_similarity(query_embedding, chunk_embeddings)
-    
-    # Add similarity scores and sort
-    for i, chunk in enumerate(chunks):
-        chunk['rerank_score'] = float(similarities[i])
-    
-    # Sort by rerank score and keep top k
-    reranked = sorted(chunks, key=lambda x: x['rerank_score'], reverse=True)[:top_k]
-    
-    return reranked
+    chunk_texts = [chunk.get("text", "") for chunk in chunks]
+    model = _get_cross_encoder()
+
+    if model is not None:
+        scores = model.predict(
+            [(query, text) for text in chunk_texts],
+            batch_size=16,
+            show_progress_bar=False,
+        )
+    else:
+        query_embedding = get_embeddings([query], use_instruction=True)[0]
+        chunk_embeddings = get_embeddings(chunk_texts, use_instruction=False)
+        scores = compute_similarity(query_embedding, chunk_embeddings)
+
+    query_lower = query.lower()
+    for index, chunk in enumerate(chunks):
+        score = float(scores[index])
+        content_type = chunk.get("content_type", "text")
+        if content_type == "image" and any(
+            term in query_lower for term in ("figure", "image", "plot", "graph", "chart")
+        ):
+            score += 0.75
+        if content_type == "table" and any(
+            term in query_lower for term in ("table", "compare", "comparison")
+        ):
+            score += 0.75
+        chunk["rerank_score"] = score
+
+    ranked = sorted(
+        chunks,
+        key=lambda item: item.get("rerank_score", float("-inf")),
+        reverse=True,
+    )
+
+    if not selected_pmids:
+        return ranked[:top_k]
+
+    # Guarantee equal evidence capacity for each explicitly selected paper.
+    balanced: List[Dict] = []
+    for pmid in selected_pmids:
+        paper_chunks = [
+            chunk for chunk in ranked if str(chunk.get("pmid")) == str(pmid)
+        ]
+        balanced.extend(paper_chunks[:top_k])
+    return balanced
 
 
-def format_chunks_for_qa(chunks: List[Dict]) -> str:
+def format_chunks_for_qa(
+    chunks: List[Dict],
+    conversation_id: Optional[str] = None,
+) -> str:
     """
     Format reranked chunks for Q&A model context.
     Deduplicates sources to include paper metadata only once.
@@ -54,7 +149,7 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
     if not chunks:
         return "No relevant information found."
     
-    context = "RELEVANT ABSTRACT CHUNKS:\n"
+    context = "RELEVANT PAPER EVIDENCE:\n"
     context += "=" * 80 + "\n\n"
     
     # Group by PMID
@@ -67,15 +162,23 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
                 'year': chunk.get('year', 'Unknown'),
                 'journal': chunk.get('journal', 'Unknown'),
                 'url': chunk.get('url') or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                'rank': chunk.get('rank'),
                 'chunks': []
             }
         papers[pmid]['chunks'].append({
             'text': chunk.get('text', ''),
-            'score': chunk.get('rerank_score', 0)
+            'score': chunk.get('rerank_score', 0),
+            'section': chunk.get('section') or 'Unknown',
+            'content_type': chunk.get('content_type') or 'text',
+            'artifact_url': chunk.get('artifact_url'),
+            'evidence_id': get_evidence_id(chunk),
+            'evidence_url': get_evidence_url(chunk, conversation_id),
+            'page_number': chunk.get('page_number'),
         })
         
     for idx, (pmid, paper) in enumerate(papers.items(), 1):
-        context += f"PAPER [{idx}]:\n"
+        rank_label = paper.get("rank") or idx
+        context += f"RANKED PAPER #{rank_label}:\n"
         context += f"TITLE:\n{paper['title']}\n\n"
         context += f"PMID:\n{pmid}\n\n"
         context += f"YEAR:\n{paper['year']}\n\n"
@@ -83,8 +186,17 @@ def format_chunks_for_qa(chunks: List[Dict]) -> str:
         context += f"URL:\n{paper['url']}\n\n"
         
         for i, chunk in enumerate(paper['chunks'], 1):
-            context += f"ABSTRACT CHUNK (Relevance Score: {chunk['score']:.4f}):\n"
+            context += (
+                f"{chunk['content_type'].upper()} EVIDENCE "
+                f"(Section: {chunk['section']}; Relevance: {chunk['score']:.4f}):\n"
+            )
+            context += f"EVIDENCE ID: {chunk['evidence_id']}\n"
+            context += f"EVIDENCE URL: {chunk['evidence_url']}\n"
+            if chunk.get("page_number"):
+                context += f"PDF PAGE: {chunk['page_number']}\n"
             context += f"{chunk['text']}\n\n"
+            if chunk.get("artifact_url"):
+                context += f"DISPLAYABLE ARTIFACT URL: {chunk['artifact_url']}\n\n"
             
         context += "-" * 80 + "\n\n"
     

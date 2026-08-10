@@ -1,4 +1,4 @@
-import { Paper, Reference } from './paper';
+import { Paper, PaperArtifact, Reference } from './paper';
 
 export interface ChatRequest {
   conversation_id: string | null;
@@ -26,6 +26,7 @@ export interface QAResponse {
   conversation_id: string;
   response: string;
   references: Reference[];
+  artifacts: PaperArtifact[];
 }
 
 export interface ChatResponse {

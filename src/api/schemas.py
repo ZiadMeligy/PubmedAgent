@@ -14,6 +14,17 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class PaperSummaryRequest(BaseModel):
+    conversation_id: str
+    refresh: bool = False
+
+
+class PaperComparisonRequest(BaseModel):
+    conversation_id: str
+    ranks: List[int] = Field(min_length=2, max_length=4)
+    question: Optional[str] = None
+
+
 # ─── Nested Data Models ──────────────────────────────────────────
 
 class PaperResult(BaseModel):
@@ -42,6 +53,38 @@ class ReferenceResult(BaseModel):
     pmid: str
     url: str
     year: Optional[int] = None
+    rank: Optional[int] = None
+
+
+class ArtifactResult(BaseModel):
+    artifact_id: str
+    type: str
+    pmid: str
+    rank: Optional[int] = None
+    title: str
+    label: str
+    page_number: Optional[int] = None
+    url: Optional[str] = None
+
+
+class PaperArtifactDetail(ArtifactResult):
+    evidence_id: str
+    text: str
+    evidence_url: str
+
+
+class EvidenceDetail(BaseModel):
+    evidence_id: str
+    conversation_id: str
+    pmid: str
+    rank: int
+    title: str
+    text: str
+    content_type: str
+    section: Optional[str] = None
+    page_number: Optional[int] = None
+    pdf_available: bool
+    pdf_url: Optional[str] = None
 
 
 # ─── Response Models ─────────────────────────────────────────────
@@ -64,6 +107,7 @@ class QAResponse(BaseModel):
     conversation_id: str
     response: str
     references: List[ReferenceResult]
+    artifacts: List[ArtifactResult] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 
@@ -82,6 +126,28 @@ class ErrorResponse(BaseModel):
     message: str
 
     model_config = {"populate_by_name": True}
+
+
+class PaperSummaryResponse(BaseModel):
+    rank: int
+    pmid: str
+    title: str
+    summary: str
+    cached: bool
+
+
+class PaperComparisonResponse(BaseModel):
+    comparison: str
+    ranks: List[int]
+    references: List[ReferenceResult]
+    artifacts: List[ArtifactResult] = Field(default_factory=list)
+
+
+class PaperArtifactListResponse(BaseModel):
+    pmid: str
+    rank: int
+    title: str
+    artifacts: List[PaperArtifactDetail]
 
 
 # ─── Conversation Lifecycle Models ───────────────────────────────
@@ -137,4 +203,3 @@ class SettingsSchema(BaseModel):
     gamma: float
     journal_quality_enabled: bool = False
     minimum_sjr: float = 10.0
-
