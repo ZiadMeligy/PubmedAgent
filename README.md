@@ -119,7 +119,6 @@ Follow these steps to deploy both the backend and frontend locally.
 - Ask to compare two to four ranked papers to use the structured comparison service.
 - Click an inline answer citation to open the exact evidence viewer and PDF page.
 
----
 
 ## ⚙️ Architecture Notes
 - **Authentication**: JWT-based auth is implemented and stored via SQLite (`conversations.db`).
